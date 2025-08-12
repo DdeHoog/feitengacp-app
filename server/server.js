@@ -1,5 +1,6 @@
     require('dotenv').config(); // Load environment variables from .env file
 
+    const TOKEN_PATH = path.join(__dirname, 'tokens.json');
     const axios = require('axios'); 
     const express = require('express'); 
     const cors = require('cors'); 
@@ -17,43 +18,22 @@
     }
 
     async function saveTokens(tokens) {
-        memoryTokens = tokens; // Store tokens in memory for development on render.com
-        console.log('New tokens:', JSON.stringify(tokens, null, 2));// copy into env for new tokens
-        console.log('✅ Tokens saved in memory for development');
-
-/*      try{
-            await fs.writeFile('tokens.json', JSON.stringify(tokens, null, 2), 'utf-8' );
+        try {
+            await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), 'utf-8');
             console.log('✅ Tokens saved to tokens.json');
-        }catch (err){
-            console.error('❌ Error saving tokens:', err);
-        } */
-    }
-
-    let memoryTokens = null; // Variable to store tokens in memory for development on render.com
-    
-
-    async function readTokens() {
-        if (memoryTokens) return memoryTokens; // Return in-memory tokens if available
-
-        // Try loading tokens from render.com memory/env
-        if (process.env.TOKENS_JSON) {
-            try {
-                memoryTokens = JSON.parse(process.env.TOKENS_JSON);
-                console.log('✅ Tokens loaded from environment variable');
-                return memoryTokens;
-            } catch (err) {
-                console.error('❌ Error parsing tokens from environment variable:', err);
-                return null; // Return null if parsing fails
-            }
+        } catch (err) {
+            console.error('❌ FATAL: Error saving tokens to file:', err);
         }
-
-        /*try {
-            const data = await fs.readFile('tokens.json', 'utf-8');
+    }
+  
+    async function readTokens() {
+        try {
+            const data = await fs.readFile(TOKEN_PATH, 'utf-8');
             return JSON.parse(data);
         } catch (err) {
-            console.error('❌ Error reading tokens:', err);
-            return null; // Return null if file doesn't exist or can't be read
-        } */
+            console.log('Could not read tokens.json. A new one will be created after authorization.');
+            return null;
+        }
     }
 
     async function refreshAccessToken(refreshToken) {
@@ -95,7 +75,26 @@
     }
 
     //  --- Middleware ---
-    app.use(cors()); // Enable CORS for all routes - Crucial for development across different origins
+    const allowedOrigins = [
+        'http://localhost:3000',
+        'http://www.feitengacp.eu',
+        'https://www.feitengacp.eu',
+        'http://feitengacp.eu',
+        'https://feitengacp.eu'
+    ];
+
+    const corsOptions = {
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.indexOf(origin) === -1) {
+                const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+                return callback(new Error(msg), false);
+            }
+            return callback(null, true);
+        }
+    };
+    app.use(cors(corsOptions)); // Enable CORS for all routes - Crucial for development across different origins
     app.use(express.json()); // To parse JSON request bodies (future-proof to add POST requests)
 
     function authenticateToken(req, res, next) {
@@ -173,57 +172,10 @@
     });
 
     // --- API Routes ---
-    // account bulk extract for data -- crm/Contact is correct route for BSN.
-    app.get('/api/dump-accounts', async (req, res) => {
-        try {
-            const accessToken = await getAccessToken();
-            if (!accessToken) {
-                return res.status(500).json({ message: 'Server error: Cannot connect to Exact Online.' });
-            }
-
-            let allContacts = [];
-
-            const selectFields = 'ID,Email,FirstName,LastName,FullName,SocialSecurityNumber';
-            const filterQuery = 'SocialSecurityNumber ne null'; // Filter out contacts without BSN
-            let nextUrl = `https://start.exactonline.nl/api/v1/${division}/crm/Contacts?$select=${selectFields}&$filter=${filterQuery}`;
-
-            console.log('--- STARTING CONTACTS DUMP (SSN NOT NULL!) ---');
-            console.log(`Fetching accounts from: ${nextUrl.split`?`[0]}`); // base URL without query params
-
-            while (nextUrl) {
-                const exactResponse = await axios.get(nextUrl, {
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        Accept: 'application/json',
-                    },
-                });
-
-                const contactsOnPage = exactResponse.data.d?.results || [];
-                allContacts.push(...contactsOnPage);
-
-                // The API provides a `__next` property with the URL for the next page
-                nextUrl = exactResponse.data.d?.__next;
-                if (nextUrl) {
-                    console.log(`Fetching next page: ${nextUrl}`);
-                }
-            }
-            
-            console.log('--- RAW EXACT ONLINE CRM CONTACTS RESPONSE (COMPLETE DUMP) ---');
-            console.log(JSON.stringify(allContacts, null, 2));
-            console.log(`------------------- END OF DUMP: ${allContacts.length} contacts found -------------------`);
-
-            res.json({ message: `Successfully dumped ${allContacts.length} contacts. Check server logs.` });
-
-        } catch (error) {
-            console.error('❌ Error during /api/dump-accounts:', error.response?.data || error.message);
-            res.status(500).json({ message: 'Server error during contacts dump.' });
-        }
-    });
-
-    // ===API endpoint for login verification===
+    // === API endpoint for login verification ===
     app.post('/api/login', async (req, res) => {
         const { email, password } = req.body; //receive email and password from homepage.js submit form
-        console.log(`Login attempt for email: ${email}, password: ${password}`);//REMOVE PASSWORD IN PRODUCTION, ONLY FOR TESTING
+        console.log(`Login attempt for email: ${email}`);
 
         try {
             const accessToken = await getAccessToken();
@@ -247,9 +199,9 @@
             });
 
             const exactContacts = exactResponse.data.d?.results || []; // Extract results from the response
-            console.log('--- RAW EXACT ONLINE CRM ACCOUNTS RESPONSE (FOR INSPECTION) ---');
+            /* console.log('--- RAW EXACT ONLINE CRM ACCOUNTS RESPONSE (FOR INSPECTION) ---');
             console.log(JSON.stringify(exactContacts, null, 2));
-            console.log('--------------------------------------------------------------');
+            console.log('--------------------------------------------------------------'); */
 
 
             
@@ -296,7 +248,7 @@
         }
     });
 
-    // Product page API, sync from stockPosition with extra fields for product details
+    // === Product page API, sync from stockPosition with extra fields for product details ===
     app.get('/api/products', authenticateToken, async (req, res) => {
         try {
            const accessToken = await getAccessToken();
@@ -442,66 +394,15 @@
         }
     });
 
-    // A robust route that can handle either an XML or JSON response
-    app.get('/api/test-extra-fields', authenticateToken, async (req, res) => {
-        try {
-            const accessToken = await getAccessToken();
-            if (!accessToken) {
-                return res.status(401).json({ error: 'Unauthorized' });
-            }
-
-            const knownGoodItemId = '8238316a-e168-479c-a71e-426615b8f2d9';
-            const testUrl = `https://start.exactonline.nl/api/v1/${division}/read/logistics/ItemExtraField?itemId=guid'${knownGoodItemId}'`;
-
-            console.log(`--- RUNNING ROBUST EXTRA FIELD TEST ---`);
-            console.log(`🔍 Calling URL: ${testUrl}`);
-
-            const exactResponse = await axios.get(testUrl, {
-                responseType: 'text' // We always want the raw string
-            });
-
-            const responseData = exactResponse.data;
-            let results = [];
-
-            console.log('✅ Raw text response received. Checking format...');
-
-            // --- KEY LOGIC: Check if the response is XML or JSON ---
-            if (responseData && responseData.trim().startsWith('<')) {
-                console.log("Response format is XML. Parsing with xml2js...");
-                const jsonData = await parser.parseStringPromise(responseData);
-                results = jsonData.ItemExtraField.element || [];
-            } else {
-                console.log("Response format is JSON. Parsing with JSON.parse()...");
-                try {
-                    // It's a JSON string, so we parse it normally.
-                    const jsonData = JSON.parse(responseData);
-                    results = jsonData.d?.results || [];
-                } catch (e) {
-                    console.error("Failed to parse the response as JSON.", e);
-                }
-            }
-
-            console.log('✅ Response successfully parsed. Result:');
-            console.log(JSON.stringify(results, null, 2));
-            console.log(`--- END OF TEST: ${results.length} fields found ---`);
-
-            res.json({ message: 'Test finished. Response parsed successfully.', data: results });
-
-        } catch (error) {
-            console.error('❌ Error during /api/test-extra-fields:', error.response?.data || error.message);
-            res.status(500).json({ message: 'Server error during extra field test.' });
-        }
-    });
-
 
     // --- Static File Serving (for production build) ---
     app.use(express.static(path.resolve(__dirname, '../client/build')));
 
 
     // --- Catch-all Route (for Single Page Applications) ---
-    /* app.get('*', (req, res) => {
+    app.get('*', (req, res) => {
         res.sendFile(path.resolve(__dirname, '../client/build', 'index.html'));
-    }); */
+    });
 
     // Start the server
     app.listen(port, () => {
