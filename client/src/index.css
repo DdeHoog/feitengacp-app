@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* To import Tailwind's base styles and define any truly global CSS. */
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+}
