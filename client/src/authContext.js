@@ -22,7 +22,8 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (email, password) => {
         try {
-            const response = await fetch('https://feitengacp-local-server.onrender.com/api/login', {
+            const baseURL = process.env.REACT_APP_API_BASE_URL;
+            const response = await fetch(`${baseURL}/api/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

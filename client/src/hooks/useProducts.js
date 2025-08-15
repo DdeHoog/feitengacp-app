@@ -37,8 +37,8 @@ function useProducts() {
       setError(null);
 
       try {      
-        // localhost:5000/api/products for local development
-        const response = await fetch('https://feitengacp-local-server.onrender.com/api/products', {
+        const baseURL = process.env.REACT_APP_API_BASE_URL; // Fetches base url basd on prod or dev setup - render for dev.
+        const response = await fetch(`${baseURL}/api/products`, {
           methods: 'GET',
           headers: {
             'Content-Type': 'application/json',
