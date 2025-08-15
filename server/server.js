@@ -1,12 +1,13 @@
     require('dotenv').config(); // Load environment variables from .env file
 
-    const TOKEN_PATH = path.join(__dirname, 'tokens.json');
+    
     const axios = require('axios'); 
     const express = require('express'); 
     const cors = require('cors'); 
     const path = require('path');   
     const jwt = require('jsonwebtoken'); 
     const { Parser } = require('xml2js');
+    const TOKEN_PATH = path.join(__dirname, 'tokens.json');
     const parser = new Parser({ explicitArray: false, ignoreAttrs: true });
 
     const app = express();
