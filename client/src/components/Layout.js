@@ -1,9 +1,9 @@
 import React from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { useAuth } from '../authContext';
+import { useAuth, logout } from '../authContext';
 
 function Layout() {
-  const { authToken } = useAuth();
+  const { authToken, logout } = useAuth();
 
   const navLinkStyles = ({ isActive }) => ({
     fontWeight: isActive ? 'bold' : 'normal',
@@ -54,6 +54,14 @@ function Layout() {
                 <li><NavLink to="/" style={navLinkStyles}>Home</NavLink></li>
                 <li><NavLink to="/stock" style={navLinkStyles}>Stock</NavLink></li>
                 <li><NavLink to="/contact" style={navLinkStyles}>Download</NavLink></li>
+                <li>
+                  <button 
+                    onClick={logout} 
+                    className="font-normal text-gray-700 hover:text-red-600 focus:outline-none transition-colors duration-200"
+                  >
+                    Logout
+                  </button>
+                </li>
               </ul>
             </nav>
           )}

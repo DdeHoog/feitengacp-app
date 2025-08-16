@@ -1,4 +1,6 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import apiClient, { setupInterceptors } from './api';
 
 const AuthContext = createContext(null);
 
@@ -6,64 +8,53 @@ export const AuthProvider = ({ children }) => {
 
     const [authToken, setAuthToken] = useState(null);
     const [isAuthReady, setIsAuthReady] = useState(false);
+    const navigate = useNavigate();
 
-    // Effect to check localStorage for a token when the app first loads
+    // Wrapped in useCallback to ensure its reference is stable for the useEffect dependency array.
+    const logout = useCallback(() => {
+        localStorage.removeItem('authToken');
+        setAuthToken(null);
+        console.log("AuthContext: User logged out, token removed.");
+        navigate('/');
+    }, [navigate]);
+
+    // Effect to check localStorage and set up the interceptor on initial app load
     useEffect(() => {
         console.log("AuthContext: Checking localStorage for token...");
         const token = localStorage.getItem('authToken');
         if (token) {
             setAuthToken(token);
             console.log("AuthContext: Token found in localStorage.");
-        } else {
-            console.log("AuthContext: No token found in localStorage.");
         }
-        setIsAuthReady(true); // Mark auth as ready after checking localStorage
-    }, []);
+        setIsAuthReady(true);
+        setupInterceptors(logout); // Setup interceptors with the logout function
+    }, [logout]);
+
 
     const login = async (email, password) => {
         try {
-            const baseURL = process.env.REACT_APP_API_BASE_URL;
-            const response = await fetch(`${baseURL}/api/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ email, password }),
-            });
+            const response = await apiClient.post('/api/login', { email, password });
+            
+            // With axios, the JSON data is in response.data
+            const data = response.data;
 
-            const data = await response.json();
+            localStorage.setItem('authToken', data.token);
+            setAuthToken(data.token);
+            console.log("AuthContext: Login successful, token stored.");
+            return { success: true, message: data.message };
 
-            if (response.ok) {
-                // If login is successful, store the token
-                localStorage.setItem('authToken', data.token);
-                setAuthToken(data.token);
-                console.log("AuthContext: Login successful, token stored.");
-                return { success: true, message: data.message };
-            } else {
-                // Handle login errors
-                console.error("AuthContext: Login failed:", data.message);
-                return { success: false, message: data.message || 'Login failed' };
-            }
         } catch (error) {
-            console.error("AuthContext: Error during login:", error);
-            return { success: false, message: 'Network error or server unavailable.' };
+            console.error("AuthContext: Login failed:", error.response?.data?.message || error.message);
+            return { success: false, message: error.response?.data?.message || 'Login failed' };
         }
     };
 
-    // Function to handle user logout
-    const logout = () => {
-        localStorage.removeItem('authToken'); // Remove token from localStorage
-        setAuthToken(null); // Clear token from state
-        console.log("AuthContext: User logged out, token removed.");
-    };
-
-    // Provide the auth state and functions to children components
     const contextValue = {
         authToken,
         isAuthReady,
         login,
         logout,
-        isAuthenticated: !!authToken, // Convenience boolean for checking authentication status
+        isAuthenticated: !!authToken,
     };
 
     return (
@@ -73,7 +64,6 @@ export const AuthProvider = ({ children }) => {
     );
 };
 
-// Custom hook to use the AuthContext
 export const useAuth = () => {
     return useContext(AuthContext);
 };

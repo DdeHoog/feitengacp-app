@@ -6,28 +6,26 @@ function HomePage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { authToken, login } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     try {
-      // Call the login function from AuthContext. It handles the API call, token storage, and state updates.
-      const result = await login(email, password); 
-
-      if (result.success) {
-        // login succesful
-      } else {
-        // If login failed (e.g., invalid credentials), set the error message
-        setError(result.message);
-      } 
+        const result = await login(email, password);
+        if (!result.success) {
+            setError(result.message);
+        }
     } catch (err) {
-      // This catch block will primarily handle network errors not caught by AuthContext's login
-      console.error("Login error (network or unexpected):", err);
-      setError('An unexpected error occurred during login.');
-    }
+        console.error("Login error (network or unexpected):", err);
+        setError('An unexpected error occurred during login.');
+      } finally {
+          setIsLoading(false);
+      }
   };
       
 
@@ -61,6 +59,7 @@ function HomePage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="mb-6">
@@ -75,14 +74,16 @@ function HomePage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <button
                     type="submit"
                     className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                    disabled={isLoading}
                   >
-                    Sign In
+                    {isLoading ? 'Signing In...' : 'Sign In'} {/* 4. Change the text when loading */}
                   </button>
                   <a
                     className="inline-block align-baseline font-bold text-sm text-blue-700 hover:text-blue-800"
