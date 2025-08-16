@@ -288,14 +288,23 @@
             // To be filtered itemCodes
             // 200 / 210 / 220 / 300 / 317 / 320 / 330 / 350 / 600 / 610 / 615 / 620 / 625 / 630 / 635 / 645 / 650 / 660 / 710 / 777 / 975 / 980 / 981 / 982
             const excludePrefixes = [  
-                '20', '21', '22', '30', '317', '32', '33', '35', '60', '61', '615', '62', '62', '63', '63', '645', '65', '66', '71', '777', '97', '98', '981', '982'
+                '20', '21', '22', '30', '317', '32', '33', '35', '60', '61', '615', '62', '62', '63', '63', '645', '65', '66', '71', '777', '97', '98', '981', '982', '230', '9'
             ]; 
 
             // filter out unused products BEFORE calling extraFields
-            const filteredProducts = rawProducts.filter(product =>
-                typeof product.ItemCode === 'string' &&
-                !excludePrefixes.some(prefix => product.ItemCode.startsWith(prefix))
-            );
+            const filteredProducts = rawProducts.filter(product => {
+                const code = product.ItemCode;
+                if (typeof code !== 'string') return false;
+
+                // Check if the code includes 'EBRI' (case-insensitive)
+                const containsEbri = code.toUpperCase().includes('EBRI');
+
+                // Check if the code starts with any of the excluded prefixes
+                const startsWithExcluded = excludePrefixes.some(prefix => code.startsWith(prefix));
+
+                // Keep the product only if it DOES NOT contain Ebri AND it DOES NOT start with an excluded prefix
+                return !containsEbri && !startsWithExcluded;
+            });
 
             console.log(`Initial products: ${rawProducts.length}, Filtered products: ${filteredProducts.length}`); // Log to see diff in size before and after filter
 
