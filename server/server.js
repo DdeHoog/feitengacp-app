@@ -293,6 +293,10 @@
             // filter out unused products BEFORE calling extraFields
             const filteredProducts = rawProducts.filter(product => {
                 const code = product.ItemCode;
+                const freeStock = parseInt(product.FreeStock) || 0;
+                const expectedStock = parseInt(product.ProjectedStock) || 0;
+                const plannedIn = parseInt(product.PlanningIn) || 0;
+
                 if (typeof code !== 'string') return false;
 
                 if (code.toUpperCase().includes('EBRI')) {
@@ -300,8 +304,7 @@
                 }
 
                 if (code.startsWith('9')) {
-                    const freeStock = parseInt(product.FreeStock) || 0;
-                    const expectedStock = parseInt(product.ProjectedStock) || 0;
+                    
                     if (freeStock === 0 || expectedStock === 0) {
                         return false;
                     }
@@ -309,6 +312,10 @@
                 
                 const startsWithExcluded = excludePrefixes.some(prefix => code.startsWith(prefix));
                 if (startsWithExcluded) {
+                    return false;
+                }
+
+                if (freeStock === 0 && plannedIn === 0 && expectedStock === 0) {
                     return false;
                 }
 
