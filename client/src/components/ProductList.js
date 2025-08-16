@@ -30,7 +30,18 @@ function ProductList() {
   //sort the data based on planned in, put empty products at the end and stock at the top
   const sortedProducts = React.useMemo(() => {
     if (!products) return [];
-    return [...products].sort((a, b) => formatStock(b['Expected Stock']) - formatStock(a['Expected Stock']));
+    return [...products].sort((a, b) => {
+      const hasStockA = formatStock(a['Free Stock']) > 0;
+      const hasStockB = formatStock(b['Free Stock']) > 0;
+
+      // If one has stock and the other doesn't, the one with stock comes first.
+      if (hasStockA !== hasStockB) {
+        return hasStockB ? 1 : -1; 
+      }
+
+      // 2ndly, sort by itemCode ascending
+      return a['Item Code'].localeCompare(b['Item Code']);
+    });
   }, [products]);
 
 
