@@ -17,6 +17,10 @@ module.exports = {
         'custom-bar-width-left': '60px', // Example for a specific pixel value
         'custom-bar-width-right': '60px',
         'company-name-bar-width': '420px',
+        '350width': '350px',
+        '300width': '300px',
+        '250width': '250px',
+        '200width': '200px',
       }
     },
   },
