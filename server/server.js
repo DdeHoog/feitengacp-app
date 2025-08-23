@@ -18,6 +18,11 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    // For parsin description
+    const KNOWN_COLORS = ['Ivorywhite', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Whiteboard', 'White', 'ALU BF', 'BF'];
+    const KNOWN_THICKNESSES = ['2mm', '3mm', '4mm', '6mm', '8mm'];
+    const KNOWN_SKIN_TYPES = ['ECO', 'LITE', 'PLUS', 'PREMIUM', 'BUILDING GRADE'];
+
     async function saveTokens(tokens) {
         try {
             await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), 'utf-8');
@@ -75,7 +80,7 @@
         return tokens.access_token; // Return the valid access token
     }
 
-    //  --- Middleware ---
+    //  === Middleware ===
     const allowedOrigins = [
         'http://localhost:3000',
         'http://www.feitengacp.eu',
@@ -117,10 +122,72 @@
         })
     };
 
-    // Uncomment the next line when build React app for production
-    // app.use(express.static(path.join(__dirname, '../client/build')));
+    //===PARSER===
+    function parseProductDescription(description, itemCode) {
+        let parsedData = {
+            color: '',
+            thickness: '',
+            typeOfSkin: '',
+            length: '',
+            width: ''
+        };
+
+        if (typeof description !== 'string' || description === '') {
+            return parsedData;
+        }
+
+        // --- First Pass: Find Color, Thickness, and Skin Type ---
+        for (const color of KNOWN_COLORS) {
+            const colorRegex = new RegExp(`\\b${color.replace(' ', '\\s')}\\b`, 'i');
+            if (colorRegex.test(description)) {
+                parsedData.color = color;
+                break;
+            }
+        }
+        for (const thickness of KNOWN_THICKNESSES) {
+            const thicknessRegex = new RegExp(`\\b${thickness}\\b`, 'i');
+            if (thicknessRegex.test(description)) {
+                parsedData.thickness = thickness;
+                break;
+            }
+        }
+        for (const skinType of KNOWN_SKIN_TYPES) {
+            const skinTypeRegex = new RegExp(`\\b${skinType.replace(' ', '\\s')}\\b`, 'i');
+            if (skinTypeRegex.test(description)) {
+                parsedData.typeOfSkin = skinType;
+                break;
+            }
+        }
+
+        // --- Second Pass (Conditional): Parse Dimensions if Color is White ---
+        if (parsedData.color.toUpperCase() === 'WHITE' && typeof itemCode === 'string') {
+            // Regex captures the last four digits as two separate groups of two. e.g., '30' and '50' from '...3050'.
+            const match = itemCode.match(/(\d{2})(\d{2})$/);
+            
+            if (match) {
+                const lengthCode = parseInt(match[1], 10);
+                const widthCode = parseInt(match[2], 10); 
+
+                // Calculate Length based on the rule: (XX * 100) + 50
+                const calculatedLength = (lengthCode * 100) + 50;
+                parsedData.length = `${calculatedLength}mm`; // e.g., "3050mm"
+
+                // Calculate Width based on the special cases
+                if (widthCode === 12) {
+                    parsedData.width = '1250mm';
+                } else {
+                    // For all other cases like 15, 20, etc., multiply by 100
+                    const calculatedWidth = widthCode * 100;
+                    parsedData.width = `${calculatedWidth}mm`; // e.g., "1500mm", "2000mm"
+                }
+            }
+        }
+        
+        return parsedData;
+    }
 
 
+    // === API ROUTES ===
     // === Exact OAuth2: Authorize Redirect ===
     app.get('/oauth/authorize', (req, res) => {
         const base = 'https://start.exactonline.nl/api/oauth2/auth';
@@ -172,7 +239,6 @@
         }
     });
 
-    // --- API Routes ---
     // === API endpoint for login verification ===
     app.post('/api/login', async (req, res) => {
         const { email, password } = req.body; //receive email and password from homepage.js submit form
@@ -325,76 +391,8 @@
 
             console.log(`Initial products: ${rawProducts.length}, Filtered products: ${filteredProducts.length}`); // Log to see diff in size before and after filter
 
-            /* //Array of promises to fetch extra fields for each product
-            const extraFieldPromises = filteredProducts.map(async (product, index) =>{
-                const itemIDForExtraField = product.ItemId; //Guid to call extra field for filtered products - ItemId stockPosition matches ItemID in ItemExtraField
-
-                const extraFieldUrl= `https://start.exactonline.nl/api/v1/${division}/read/logistics/ItemExtraField`;
-                const fullUrl = `${extraFieldUrl}?itemId=guid'${itemIDForExtraField}'`;
-
-                await sleep(index * 100) // Set a delay to avoid hitting API rate limits
-
-                // 🔍 DEBUG LOG: Print the exact request being made
-                //console.log(`🔍 Manually constructed URL: ${fullUrl}`);
-
-                try {
-                    const response = await axios.get(fullUrl, {
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`,
-                            Accept: 'application/json',
-                        },
-                    });
-                    return response;
-                }catch(err ) {
-                    const apiErrorData = err.response?.data; // This is the key part!
-                    const status = err.response?.status;
-                    const statusText = err.response?.statusText;
-
-                    console.error(
-                        `Failed to fetch extra fields for ItemID ${itemIDForExtraField}. Status: ${status} ${statusText}. Details:`,
-                        apiErrorData || err.message // Log the data or the generic message as a fallback
-                    );
-                    return null;
-                };
-            });
-
-            // Execute all promises and wait for results
-            const extraFieldsResponses = await Promise.all(extraFieldPromises);
-
-            const extraFieldsMap = new Map(); // Map to store extra fields by ItemId
-            extraFieldsResponses.forEach(response => {
-                if (response && response.data && response.data.d) {
-                    const results = response.data.d.results || [];// Extract results from the response
-
-                    // ✅ NEW DEBUG LOG: Log the raw results array from ItemExtraField
-                    console.log(`🔍 ItemExtraField API response for ItemID: ${response.data.d.ItemID || 'N/A'}:`, JSON.stringify(results, null, 2));
-
-                    // ✅ DEBUG: log every field's metadata
-                    results.forEach(field => {
-                        console.log(`ItemID: ${field.ItemID}, Description: ${field.Description}, Value: ${field.Value}`);
-                    });
-
-                    results.forEach(field => {
-                        const lowerDesc = field.Description?.toLowerCase?.() || '';
-                        if (!extraFieldsMap.has(field.ItemID)){
-                            extraFieldsMap.set(field.ItemID, {});
-                        }
-                        // Assuming descript is 'materiaal' from image benjamin
-                        if (lowerDesc.includes('materiaal')) {
-                            extraFieldsMap.get(field.ItemID)['Type of Skin'] = field.Value;
-                        } else if (lowerDesc.includes('hoogte')) {
-                            extraFieldsMap.get(field.ItemID)['Height'] = field.Value;
-                        } else if (lowerDesc.includes('dikte')) {
-                            extraFieldsMap.get(field.ItemID)['Thickness'] = field.Value;
-                        } else if (lowerDesc.includes('breedte')) {
-                            extraFieldsMap.get(field.ItemID)['Width'] = field.Value;
-                        }
-                    });                 
-                }
-            });*/
-
             const products = filteredProducts.map(r => {
-                //const extraData = extraFieldsMap.get(r.ItemId) || {}; // ItemId stockPosition matches ItemID in ItemExtraField
+                const parsedData = parseProductDescription(r.ItemDescription, r.ItemCode);
                 return {
                     id: r.ItemId,
                     "Item Code":      r.ItemCode,
@@ -403,16 +401,14 @@
                     "Planned In":     r.PlanningIn,
                     "Planning Out":   r.PlanningOut,
                     "Expected Stock": r.ProjectedStock,
-                    //"Type of Skin": extraData['Type of Skin'] || 'NA',
-                    //"Height":       extraData['Height'] || 'NA',
-                    //"Thickness":    extraData['Thickness'] || 'NA',
-                    //"Width":        extraData['Width'] || 'NA',
+                    "Type of Skin": parsedData.typeOfSkin,
+                    "Thickness":    parsedData.thickness,
+                    "Color":        parsedData.color,
+                    "Length":         parsedData.length || '',
+                    "Width":          parsedData.width || '',
                 };
             }); 
 
-            // Dump it to  logs to inspect
-            //console.log('fitlered sync API response:', JSON.stringify(products, null, 2));
-            //console.log(`✅ Successfully enriched ${products.length} products with extra fields.`);
             res.json(products); // Send the products data as JSON response
 
         } catch (error) {
