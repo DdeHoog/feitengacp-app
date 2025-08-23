@@ -27,7 +27,8 @@ export const setupInterceptors = (logout) => {
     (error) => {
       if (error.response && (error.response.status === 401 || error.response.status === 403)) {
         console.log("Auth interceptor: Unauthorized or expired token. Logging out.");
-        logout();
+
+        logout({ message: "Your session has expired. Please log in again." });
       }
       return Promise.reject(error);
     }

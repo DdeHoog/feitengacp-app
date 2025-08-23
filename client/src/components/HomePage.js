@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../authContext';
 
 function HomePage() {
@@ -9,10 +9,21 @@ function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { authToken, login } = useAuth();
+  const location = useLocation();
+  const [notification, setNotification] = useState(null);
+
+  // display logout or session expiration messages
+  useEffect(() => {
+    if (location.state?.message) {
+      setNotification(location.state.message);
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setNotification(null); 
     setIsLoading(true);
 
     try {
@@ -45,6 +56,11 @@ function HomePage() {
           {/* Basic Login Form. */}
           {!authToken ? (
             <div className="bg-white p-2 lg:p-4 xl:p-6 rounded-lg shadow-md w-full max-w-sm mt-4 ">
+              {notification && (
+                  <div className="mb-4 p-3 rounded-md bg-yellow-100 text-yellow-800 border border-yellow-300 text-center">
+                      {notification}
+                  </div>
+              )}
               <h2 className="text-xl xl:text-2xl font-semibold text-gray-800 mb-4">Login</h2>
               <form onSubmit={handleSubmit}>
                 <div className="mb-4">

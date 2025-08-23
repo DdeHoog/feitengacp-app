@@ -11,11 +11,12 @@ export const AuthProvider = ({ children }) => {
     const navigate = useNavigate();
 
     // Wrapped in useCallback to ensure its reference is stable for the useEffect dependency array.
-    const logout = useCallback(() => {
+    const logout = useCallback((options = {}) => {
         localStorage.removeItem('authToken');
         setAuthToken(null);
         console.log("AuthContext: User logged out, token removed.");
-        navigate('/');
+        const navigationState = options.message ? { state: { message: options.message } } : {};
+        navigate('/', navigationState);
     }, [navigate]);
 
     // Effect to check localStorage and set up the interceptor on initial app load
