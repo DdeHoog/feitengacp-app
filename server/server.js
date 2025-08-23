@@ -175,10 +175,13 @@
                 // Calculate Width based on the special cases
                 if (widthCode === 12) {
                     parsedData.width = '1250mm';
-                } else {
-                    // For all other cases like 15, 20, etc., multiply by 100
+                } 
+                else if(widthCode === 20) {
+                    parsedData.width = '2050mm';
+                }else {
+                    // For all other cases like 15, etc., multiply by 100
                     const calculatedWidth = widthCode * 100;
-                    parsedData.width = `${calculatedWidth}mm`; // e.g., "1500mm", "2000mm"
+                    parsedData.width = `${calculatedWidth}mm`; // e.g., "1500mm",
                 }
             }
         }
