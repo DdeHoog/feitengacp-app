@@ -126,12 +126,12 @@ function HomePage() {
                   >
                     {isLoading ? 'Signing In...' : 'Sign In'} {/* 4. Change the text when loading */}
                   </button>
-                  <a
+                  {/* <a
                     className="inline-block align-baseline font-bold text-sm text-blue-700 hover:text-blue-800"
                     href="#"
                   >
                     Forgot Password?
-                  </a>
+                  </a> */}
                 </div>
               </form>
             </div>
