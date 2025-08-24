@@ -19,9 +19,28 @@
     }
 
     // For parsin description
-    const KNOWN_COLORS = ['Ivorywhite', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Whiteboard', 'White', 'ALU BF', 'BF'];
+    const KNOWN_COLORS = ['Ivorywhite', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Whiteboard', 'White', 'ALU BF', 'BF', 'Silver'];
     const KNOWN_THICKNESSES = ['2mm', '3mm', '4mm', '6mm', '8mm'];
-    const KNOWN_SKIN_TYPES = ['ECO', 'LITE', 'PLUS', 'PREMIUM', 'BUILDING GRADE'];
+    const KNOWN_SKIN_TYPES = ['ECO', 'LITE', 'PLUS', 'PREMIUM', /BG|BUILDING GRADE/i];
+
+    // === EXCEPTION RULES MAP ===
+    const itemCodeExceptions = {
+        '105.33115': { length: '3050mm', width: '1500mm' },
+        '160.390052': { width: '2050mm' },
+        '230.30112': { color: 'BF', width: '1520mm' },
+        '365.24020': { length: '2440mm', width: '1220mm' },
+        '365.24040': { length: '2440mm', width: '1220mm' },
+        '365.24050': { length: '2440mm', width: '1220mm' },
+        '365.24110': { length: '2440mm', width: '1220mm' },
+        '365.30125': { width: '1250mm' },
+        '640.41010': { color: 'Black/Grey' },
+        '640.41020': { color: 'Black-grey/White' },
+        '399.32412': { length: '2440mm', width: '1220mm' },
+        '399.33012': { width: '1220mm' },
+        '9375.34015': { length: '4050mm' },
+        '9399.32412': { length: '2440mm', width: '1220mm' },
+        '9315.33015-1': { length: '3050mm', width: '1500mm' },
+    };
 
     async function saveTokens(tokens) {
         try {
@@ -136,7 +155,7 @@
             return parsedData;
         }
 
-        // --- First Pass: Find Color, Thickness, and Skin Type ---
+        // --- Pass 1: Rule based description parsing ---
         for (const color of KNOWN_COLORS) {
             const colorRegex = new RegExp(`\\b${color.replace(' ', '\\s')}\\b`, 'i');
             if (colorRegex.test(description)) {
@@ -152,38 +171,45 @@
             }
         }
         for (const skinType of KNOWN_SKIN_TYPES) {
-            const skinTypeRegex = new RegExp(`\\b${skinType.replace(' ', '\\s')}\\b`, 'i');
+            const isBuildingGradeRule = skinType instanceof RegExp;
+            const skinTypeRegex =  isBuildingGradeRule ? skinType : new RegExp(`\\b${skinType.replace(' ', '\\s')}\\b`, 'i');
+
             if (skinTypeRegex.test(description)) {
-                parsedData.typeOfSkin = skinType;
+                if (isBuildingGradeRule) {
+                    parsedData.typeOfSkin = 'BUILDING GRADE'; // To match BG and Building Grade both to "BUILDING GRADE"
+                }
+                else {
+                    parsedData.typeOfSkin = skinType;
+                }
                 break;
             }
         }
 
-        // --- Second Pass (Conditional): Parse Dimensions if Color is White ---
-        if (parsedData.color.toUpperCase() === 'WHITE' && typeof itemCode === 'string') {
-            // Regex captures the last four digits as two separate groups of two. e.g., '30' and '50' from '...3050'.
+        // --- Pass 2: Set defaults for white(itemCode based) and non-white products ---
+        const isWhite = parsedData.color.toUpperCase() === 'WHITE';
+        if (isWhite && typeof itemCode === 'string'){
+            //White item rules based on itemCode patterns
             const match = itemCode.match(/(\d{2})(\d{2})$/);
-            
-            if (match) {
+            if (match){
                 const lengthCode = parseInt(match[1], 10);
-                const widthCode = parseInt(match[2], 10); 
-
-                // Calculate Length based on the rule: (XX * 100) + 50
-                const calculatedLength = (lengthCode * 100) + 50;
-                parsedData.length = `${calculatedLength}mm`; // e.g., "3050mm"
-
-                // Calculate Width based on the special cases
+                const widthCode = parseInt(match[2], 10);
+                parsedData.length = `${(lengthCode * 100) + 50}mm`;
                 if (widthCode === 12) {
                     parsedData.width = '1250mm';
-                } 
-                else if(widthCode === 20) {
+                } else if (widthCode === 20) {
                     parsedData.width = '2050mm';
-                }else {
-                    // For all other cases like 15, etc., multiply by 100
-                    const calculatedWidth = widthCode * 100;
-                    parsedData.width = `${calculatedWidth}mm`; // e.g., "1500mm",
+                } else {
+                    parsedData.width = `${widthCode * 100}mm`;
                 }
             }
+        } else if (!isWhite){ //Default rules for non-white products
+            parsedData.length = '3050mm';
+            parsedData.width = '1500mm';
+        }
+
+        if (itemCodeExceptions[itemCode]) {//Exception handling
+            const exceptions = itemCodeExceptions[itemCode];
+            Object.assign(parsedData, exceptions);
         }
         
         return parsedData;
