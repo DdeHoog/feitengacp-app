@@ -139,6 +139,7 @@ function HomePage() {
             // If authToken exists, show nothing in this spot
             <div className="bg-white p-2 md:p-4 xl:p-6 rounded-lg shadow-md w-full max-w-sm mt-10 text-center">
               <h2 className="text-xl xl:text-2xl font-semibold text-gray-800 mb-4">You are logged in!</h2>
+              <p className="text-gray-700">Login lasts for 1 hour, after which you will be prompted to log in again.</p>
               <p className="text-gray-700">Explore the site using the navigation above.</p>
             </div>
           )}
