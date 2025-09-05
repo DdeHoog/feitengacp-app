@@ -19,7 +19,7 @@
     }
 
     // For parsin description
-    const KNOWN_COLORS = ['Ivorywhite', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Whiteboard', 'White', 'ALU BF', 'BF', 'Silver'];
+    const KNOWN_COLORS = ['Ivorywhite', 'Ivory', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Whiteboard', 'White', 'ALU BF', 'BF', 'Silver'];
     const KNOWN_THICKNESSES = ['2mm', '3mm', '4mm', '6mm', '8mm'];
     const KNOWN_SKIN_TYPES = ['ECO', 'LITE', 'PLUS', 'PREMIUM', /BG|BUILDING GRADE/i];
 
@@ -382,7 +382,7 @@
 
             // To be filtered itemCodes
             const excludePrefixes = [  
-                '20', '21', '22', '30', '317', '32', '33', '35', '60', '61', '615', '62', '62', '63', '63', '645', '65', '66', '71', '777', '97', '98', '981', '982', '230.ALUBF'
+                '20', '21', '22', '30', '317', '321', '322', '323', '324', '326', '327', '328', '329', '33', '35', '60', '61', '615', '62', '62', '63', '63', '645', '65', '66', '71', '777', '97', '98', '981', '982', '230.ALUBF'
             ]; 
 
             // filter out unused products BEFORE calling extraFields
