@@ -40,6 +40,7 @@
         '9375.34015': { length: '4050mm' },
         '9399.32412': { length: '2440mm', width: '1220mm' },
         '9315.33015-1': { length: '3050mm', width: '1500mm' },
+        '365.24120': { length: '2440mm', width: '1220mm' },
     };
 
     async function saveTokens(tokens) {
