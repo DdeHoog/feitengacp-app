@@ -369,17 +369,35 @@
                 ].join(',')
              }; 
 
-            const {data: payload } = await axios.get(stockPositionUrl, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Accept: 'application/json',
-                },
-                params: stockPositionParams
-            });
+            // === START OF PAGINATION FIX ===
+            let allProducts = [];
+            // Construct the full URL with parameters for the first request
+            let nextUrl = stockPositionUrl + '?' + new URLSearchParams(stockPositionParams).toString();
 
+            console.log('--- STARTING PAGINATED STOCK PULL ---');
+
+            while (nextUrl) {
+                const response = await axios.get(nextUrl, {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        Accept: 'application/json',
+                    },
+                });
+
+                const productsOnPage = response.data.d?.results || [];
+                allProducts.push(...productsOnPage);
+                
+                // Get the URL for the next page from the __next link
+                nextUrl = response.data.d?.__next; 
+                
+                if (nextUrl) {
+                    console.log(`Fetching next page... (current total: ${allProducts.length})`);
+                }
+            }
             
-            
-            let rawProducts = payload.d?.results || []; // Extract results from the response
+            let rawProducts = allProducts; // Use the complete list for filtering
+
+            // === END OF PAGINATION FIX ===
 
             // To be filtered itemCodes
             const excludePrefixes = [  
@@ -392,6 +410,7 @@
                 const freeStock = parseInt(product.FreeStock) || 0;
                 const expectedStock = parseInt(product.ProjectedStock) || 0;
                 const plannedIn = parseInt(product.PlanningIn) || 0;
+                const plannedOut = parseInt(product.PlanningOut) || 0;
 
                 if (typeof code !== 'string') return false;
 
@@ -411,7 +430,7 @@
                     return false;
                 }
 
-                if (freeStock === 0 && plannedIn === 0 && expectedStock === 0) {
+                if (freeStock === 0 && plannedIn === 0 && expectedStock === 0 && plannedOut === 0) {
                     return false;
                 }
 
