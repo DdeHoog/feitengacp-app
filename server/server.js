@@ -6,6 +6,7 @@
     const cors = require('cors'); 
     const path = require('path');   
     const jwt = require('jsonwebtoken'); 
+    const fs = require('fs').promises;
     const { Parser } = require('xml2js');
     const TOKEN_PATH = path.join(__dirname, 'tokens.json');
     const parser = new Parser({ explicitArray: false, ignoreAttrs: true });
@@ -13,7 +14,6 @@
     const app = express();
     const port = process.env.PORT || 5000; 
     const division = 3555770; // Exact division for Feitengacp
-    const fs = require('fs').promises; 
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -42,6 +42,19 @@
         '9315.33015-1': { length: '3050mm', width: '1500mm' },
         '365.24120': { length: '2440mm', width: '1220mm' },
     };
+
+    async function logSuccessfulLogin(email){
+        const timestamp = new Date().toISOString();// e.g., "2024-06-15T12:34:56.789Z"
+        const logEntry = `${timestamp} - Successful login for: ${email}\n`;
+        const logFilePath = 'successful_logins.log';
+
+        try {
+            await fs.appendFile(logFilePath, logEntry, 'utf-8');
+            console.log(`✅ Logged successful login for ${email} to ${logFilePath} `);
+        } catch (err) {
+            console.error(`❌ Error logging successful login for ${email}:`, err.message);
+        }
+    }
 
     async function saveTokens(tokens) {
         try {
@@ -315,6 +328,8 @@
                     
                     const user = { id: matchedContact.ID, email: matchedContact.Email, name: matchedContact.FullName };
                     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' }); // Create a JWT token with user data
+
+                    await logSuccessfulLogin(email); // print the login to the log file for inspection
 
                     console.log(`✅ Login successful for ${email}. JWT generated.`);
                     res.json({ message: 'Login successful.', token: token });
