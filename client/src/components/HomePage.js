@@ -136,7 +136,7 @@ function HomePage() {
               </form>
             </div>
           ) : (
-            // If authToken exists, show nothing in this spot
+            // If authToken exists
             <div className="bg-white p-2 md:p-4 xl:p-6 rounded-lg shadow-md w-full max-w-sm mt-10 text-center">
               <h2 className="text-xl xl:text-2xl font-semibold text-gray-800 mb-4">You are logged in!</h2>
               <p className="text-gray-700">Login lasts for 1 hour, after which you will be prompted to log in again.</p>
@@ -149,7 +149,7 @@ function HomePage() {
         {/* Right Column: Contains the company building image. */}
         <div className="hidden lg:block flex-shrink-0 lg:mr-300width xl:mr-company-name-bar-width">
           {/* The image itself. 'h-[400px]' sets its height, 'w-auto' maintains aspect ratio. */}
-          <img src="/location.png" alt="Company Building" className="lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:mt-40 2xl:mt-30 lg:ml-3" />
+          <img src={!authToken ? "/location.png" : "/location2.jpg"} alt="Company Building" className="lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:mt-40 2xl:mt-30 lg:ml-3" />
         </div>
       </div>
     </div>
