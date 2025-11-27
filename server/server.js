@@ -42,6 +42,14 @@
         '9315.33015-1': { length: '3050mm', width: '1500mm' },
         '365.24120': { length: '2440mm', width: '1220mm' },
         '365.24120-125': {length: '2440mm', width: '1250mm', color: 'Silver Mirror' },
+        '365.24120': {color: 'Silver Mirror/Primer' },
+        '365.30125': {color: 'Silver Mirror/Primer' },
+        '157.33015': {color: 'Silver/White' },
+        '157.33020': {color: 'Silver/White' },
+        '157.34015': {color: 'Silver/White' },
+        '257.32512': {color: 'Silver/White' },
+        '257.33015': {color: 'Silver/White' },
+
     };
 
     async function logSuccessfulLogin(email){
