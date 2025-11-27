@@ -86,6 +86,13 @@ function DownloadPage() {
       file: "/Lyra-Catalogue.pdf",
       alt: "Lyra Series Catalogue Cover",
     },
+    {
+      id: 13,
+      title: "Dipper Series",
+      image: "/Dipper-Cover.png",
+      file: "/Dipper-Catalogue.pdf",
+      alt: "Dipper Series Catalogue Cover",
+    }
   ];
 
   const sustainableManual = {

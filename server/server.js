@@ -41,6 +41,7 @@
         '9399.32412': { length: '2440mm', width: '1220mm' },
         '9315.33015-1': { length: '3050mm', width: '1500mm' },
         '365.24120': { length: '2440mm', width: '1220mm' },
+        '365.24120-125': {length: '2440mm', width: '1250mm', color: 'Silver Mirror' },
     };
 
     async function logSuccessfulLogin(email){
