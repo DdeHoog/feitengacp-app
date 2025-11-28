@@ -92,6 +92,13 @@ function DownloadPage() {
       image: "/Dipper-Cover.png",
       file: "/Dipper-Catalogue.pdf",
       alt: "Dipper Series Catalogue Cover",
+    },
+    {
+      id: 14,
+      title: "Whiteboard Magnetic Panel",
+      image: "/Whiteboard-Cover.png",
+      file: "/Whiteboard-Catalogue.pdf",
+      alt: "Whiteboard Catalogue Cover",
     }
   ];
 
