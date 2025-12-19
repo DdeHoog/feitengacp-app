@@ -9,6 +9,33 @@
     const fs = require('fs').promises;
     const { Parser } = require('xml2js');
     const TOKEN_PATH = path.join(__dirname, 'tokens.json');
+    const PALLET_MAP_PATH = path.join(__dirname, 'data', 'pallet_qty.json');
+    let palletQtyMap = {};
+
+    function normalizeItemCode(code) {
+        if (!code) return '';
+        return String(code)
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, '')
+            .replace(/\./g, ''); // your JSON keys have no dots
+    }
+
+    async function loadPalletQtyMap() {
+        try {
+            const raw = await fs.readFile(PALLET_MAP_PATH, 'utf-8');
+            palletQtyMap = JSON.parse(raw);
+            console.log(`✅ Loaded pallet qty map: ${Object.keys(palletQtyMap).length} entries`);
+        } catch (err) {
+            console.warn(`⚠️ Could not load pallet qty map at ${PALLET_MAP_PATH}. Pallet QTY will be null.`, err.message);
+            palletQtyMap = {};
+        }
+    }
+
+    // Load once on startup (non-blocking)
+    loadPalletQtyMap();
+
+
     const parser = new Parser({ explicitArray: false, ignoreAttrs: true });
 
     const app = express();
@@ -472,21 +499,26 @@
 
             const products = filteredProducts.map(r => {
                 const parsedData = parseProductDescription(r.ItemDescription, r.ItemCode);
+
+                const palletKey = normalizeItemCode(r.ItemCode);
+                const palletQty = palletQtyMap[palletKey] ?? null;
+
                 return {
                     id: r.ItemId,
-                    "Item Code":      r.ItemCode,
+                    "Item Code": r.ItemCode,
                     "Item Description": r.ItemDescription,
-                    "Free Stock":     r.FreeStock,
-                    "Planned In":     r.PlanningIn,
-                    "Planning Out":   r.PlanningOut,
+                    "Free Stock": r.FreeStock,
+                    "Planned In": r.PlanningIn,
+                    "Planning Out": r.PlanningOut,
                     "Expected Stock": r.ProjectedStock,
                     "Type of Skin": parsedData.typeOfSkin,
-                    "Thickness":    parsedData.thickness,
-                    "Color":        parsedData.color,
-                    "Length":         parsedData.length || '',
-                    "Width":          parsedData.width || '',
+                    "Thickness": parsedData.thickness,
+                    "Color": parsedData.color,
+                    "Length": parsedData.length || '',
+                    "Width": parsedData.width || '',
+                    "Pallet QTY": palletQty,
                 };
-            }); 
+            });
 
             res.json(products); // Send the products data as JSON response
 

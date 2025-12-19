@@ -138,10 +138,10 @@ function ProductList() {
         { label: 'Length', key: 'Length' },
         { label: 'Width', key: 'Width' },
         { label: 'Color', key: 'Color' },
-        //{ label: 'Pallet QTY', key: 'Pallet QTY' },
         { label: 'Free stock', key: 'Free Stock' },
         { label: 'Planned in', key: 'Planned In' },
         { label: 'Expected stock', key: 'Expected Stock' },
+        { label: 'Pallet QTY', key: 'Pallet QTY' },
     ];
 
     return (
@@ -182,10 +182,10 @@ function ProductList() {
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Length"]}</td>
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Width"]}</td>
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Color"]}</td>
-                                    {/*<td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Pallet QTY"]}</td>*/}
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-blue-700 font-semibold">{formatStock(product["Free Stock"])}</td>
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-orange-700 font-semibold">{formatStock(product["Planned In"])}</td>
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-green-700 font-semibold">{formatStock(product["Expected Stock"])}</td>
+                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Pallet QTY"] == null ? "—" : Number(product["Pallet QTY"])}</td>
                                 </tr>
                             ))}
                         </tbody>
