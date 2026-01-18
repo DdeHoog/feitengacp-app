@@ -7,7 +7,7 @@ function Layout() {
 
   const navLinkStyles = ({ isActive }) => ({
     fontWeight: isActive ? 'bold' : 'normal',
-    color: isActive ? '#4338ca' : '#374151',
+    color: isActive ? '#004EA2' : '#374151',
   });
 
   // Custom widths for the left and right bars - light blue bars
@@ -21,7 +21,7 @@ function Layout() {
       <div className="w-4 absolute inset-y-0 left-0 lg:w-custom-bar-width-left bg-blue-300 z-10"></div> {/* Left Bar */}
       
       <div className=" absolute inset-y-0 right-0 flex z-10"> {/* Right Bars Container */}
-        <div className="hidden md:flex md:w-16 lg:w-300width xl:w-company-name-bar-width bg-blue-700 flex items-center justify-center">
+        <div className="hidden md:flex md:w-16 lg:w-300width xl:w-company-name-bar-width bg-[#004EA2] flex items-center justify-center">
           <span className="hidden md:flex transform rotate-90 text-transparent -translate-y-16 [-webkit-text-stroke:2px_white] md:text-6xl xl:text-8xl font-extrabold tracking-widest whitespace-nowrap">
             FEITENG
           </span>

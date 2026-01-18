@@ -149,7 +149,7 @@ function ProductList() {
             <div className="rounded-lg shadow-lg flex flex-col">
                 <div className="overflow-y-auto h-[77vh]">
                     <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-indigo-700 sticky top-0 z-10">
+                        <thead className="bg-[#003F84] sticky top-0 z-10">
                             <tr>
                                 {headers.map((header, index) => {
                                     const isFilterable = filterableColumns.includes(header.key);
@@ -158,13 +158,13 @@ function ProductList() {
                                             ref={el => headerRefs.current[index] = el}
                                             key={header.key}
                                             scope="col"
-                                            className={`px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider relative select-none ${isFilterable ? 'cursor-pointer hover:bg-indigo-600' : ''}`}
+                                            className={`px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider relative select-none ${isFilterable ? 'cursor-pointer hover:bg-[#00457F]' : ''}`}
                                             onClick={() => isFilterable && toggleDropdown(header.key, index)}
                                         >
                                             <div className="flex items-center">
                                                 <span>{header.label}</span>
                                                 {isFilterable && (
-                                                    <span className="ml-2 text-indigo-200">&#x25BC;</span>
+                                                    <span className="ml-2 text-white/70">&#x25BC;</span>
                                                 )}
                                             </div>
                                         </th>

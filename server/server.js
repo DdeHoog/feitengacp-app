@@ -46,7 +46,7 @@
     }
 
     // For parsin description
-    const KNOWN_COLORS = ['Ivorywhite', 'Ivory', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Whiteboard', 'White', 'ALU BF', 'BF', 'Silver'];
+    const KNOWN_COLORS = ['Ivorywhite', 'Ivory', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Black / White', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Gold Mirror', 'Whiteboard', 'White', 'ALU BF', 'BF', 'Silver', 'Silver Mirror',];
     const KNOWN_THICKNESSES = ['2mm', '3mm', '4mm', '6mm', '8mm'];
     const KNOWN_SKIN_TYPES = ['ECO', 'LITE', 'PLUS', 'PREMIUM', /BG|BUILDING GRADE/i];
 
@@ -58,8 +58,9 @@
         '160.39039052': { color: 'Black / White' },
         '190.390052-1': { width: '2000mm' },
         '230.30112': { color: 'BF', width: '1520mm' },
-        '365.24020': { length: '2440mm', width: '1220mm' },
-        '365.24040': { length: '2440mm', width: '1220mm' },
+        '365.24040': { color:'BF' },
+        '365.24020': { length: '2440mm', width: '1220mm', color:'BF' },
+        '365.24040': { length: '2440mm', width: '1220mm', color:'BF' },
         '365.24050': { length: '2440mm', width: '1220mm' },
         '365.24110': { length: '2440mm', width: '1220mm' },
         '365.30125': { width: '1250mm' },
@@ -83,10 +84,11 @@
         '257.33015': {color: 'Silver/White' },
         '195.390052': {length: '3050mm', width: '2050mm'},
         '9399.33012-4': {length: '3050mm', width: '1220mm'},
-        '160.39039052': {length: '3050mm', width: '2050mm'},
-        '365.30125': {length: '3050mm', width: '1250mm'},
+        '160.39039052': {length: '3050mm', width: '2050mm', color: 'Black / White'},
+        '365.30125': {length: '3050mm', width: '1250mm', color: 'Silver Mirror'},
         '365.30125-2': {length: '3050mm', width: '1250mm'},
         '180.330202  ': {length: '3050mm', width: '2050mm'},
+        '251.33015': {typeOfSkin: 'LITE B1 FR'},
     };
 
     async function logSuccessfulLogin(email){
