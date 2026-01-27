@@ -53,6 +53,7 @@
     // === EXCEPTION RULES MAP ===
     const itemCodeExceptions = {
         '105.33115': { length: '3050mm', width: '1500mm' },
+        '150.330156': { length: '3050mm', width: '1500mm' },
         '160.390052': { width: '2050mm' },
         '160.3903905': { color: 'Black / White' },
         '160.39039052': { color: 'Black / White' },
