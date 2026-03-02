@@ -53,7 +53,7 @@
     // === EXCEPTION RULES MAP ===
     const itemCodeExceptions = {
         '105.33115': { length: '3050mm', width: '1500mm' },
-        '150.330156': { length: '3050mm', width: '1500mm' },
+        '150.330156': { length: '3050mm', width: '1560mm' },
         '160.390052': { width: '2050mm' },
         '160.3903905': { color: 'Black / White' },
         '160.39039052': { color: 'Black / White' },
@@ -81,6 +81,7 @@
         '157.33015': {color: 'Silver/White' },
         '157.33020': {color: 'Silver/White' },
         '157.34015': {color: 'Silver/White' },
+        '157.32512': {color: 'Silver/White' },
         '257.32512': {color: 'Silver/White' },
         '257.33015': {color: 'Silver/White' },
         '195.390052': {length: '3050mm', width: '2050mm'},
@@ -90,6 +91,7 @@
         '365.30125-2': {length: '3050mm', width: '1250mm'},
         '180.330202  ': {length: '3050mm', width: '2050mm'},
         '251.33015': {typeOfSkin: 'LITE B1 FR'},
+        '251.32512': {typeOfSkin: 'LITE B1 FR'},
     };
 
     async function logSuccessfulLogin(email){
