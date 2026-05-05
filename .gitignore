@@ -11,6 +11,7 @@ node_modules/
 /client/.env.development
 /client/.env.production
 /server/tokens.json
+/server/storage/
 
 # Logs
 npm-debug.log*
