@@ -8,7 +8,9 @@
     const jwt = require('jsonwebtoken'); 
     const fs = require('fs').promises;
     const { Parser } = require('xml2js');
-    const TOKEN_PATH = path.join(__dirname, 'tokens.json');
+    const TOKEN_PATH = process.env.TOKEN_PATH
+        ? path.resolve(process.env.TOKEN_PATH)
+        : path.join(__dirname, 'tokens.json');
     const PALLET_MAP_PATH = path.join(__dirname, 'data', 'pallet_qty.json');
     let palletQtyMap = {};
 
@@ -109,8 +111,9 @@
 
     async function saveTokens(tokens) {
         try {
+            await fs.mkdir(path.dirname(TOKEN_PATH), { recursive: true });
             await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), 'utf-8');
-            console.log('✅ Tokens saved to tokens.json');
+            console.log(`✅ Tokens saved to ${TOKEN_PATH}`);
         } catch (err) {
             console.error('❌ FATAL: Error saving tokens to file:', err);
         }
@@ -165,13 +168,21 @@
     }
 
     //  === Middleware ===
-    const allowedOrigins = [
+    const defaultAllowedOrigins = [
         'http://localhost:3000',
         'http://www.feitengacp.eu',
         'https://www.feitengacp.eu',
         'http://feitengacp.eu',
         'https://feitengacp.eu'
     ];
+
+    const envOrigins = (process.env.ALLOWED_ORIGINS || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+    const allowedOrigins = envOrigins.length > 0 ? envOrigins : defaultAllowedOrigins;
+    console.log(`✅ CORS allowed origins (${envOrigins.length > 0 ? 'env' : 'default'}):`, allowedOrigins);
 
     const corsOptions = {
         origin: function (origin, callback) {
@@ -538,14 +549,18 @@
     });
 
 
-    // --- Static File Serving (for production build) ---
-    app.use(express.static(path.resolve(__dirname, '../client/build')));
+    // --- Static File Serving (production only) ---
+    // In dev, CRA serves the frontend on its own port; the API server should not
+    // try to serve client/build (which may not even exist).
+    if (process.env.NODE_ENV === 'production') {
+        const clientBuildPath = path.resolve(__dirname, '../client/build');
+        app.use(express.static(clientBuildPath));
 
-
-    // --- Catch-all Route (for Single Page Applications) ---
-    app.get('*', (req, res) => {
-        res.sendFile(path.resolve(__dirname, '../client/build', 'index.html'));
-    });
+        // Catch-all for SPA client-side routing.
+        app.get('*', (req, res) => {
+            res.sendFile(path.join(clientBuildPath, 'index.html'));
+        });
+    }
 
     // Start the server
     app.listen(port, () => {
