@@ -1,6 +1,7 @@
     const config = require('./config'); // Loads + validates .env on require
+    const logger = require('./logger');
+    const exactClient = require('./exactClient');
 
-    const axios = require('axios');
     const express = require('express');
     const cors = require('cors');
     const helmet = require('helmet');
@@ -25,9 +26,9 @@
         try {
             const raw = await fs.readFile(PALLET_MAP_PATH, 'utf-8');
             palletQtyMap = JSON.parse(raw);
-            console.log(`✅ Loaded pallet qty map: ${Object.keys(palletQtyMap).length} entries`);
+            logger.info({ entries: Object.keys(palletQtyMap).length }, 'Loaded pallet qty map');
         } catch (err) {
-            console.warn(`⚠️ Could not load pallet qty map at ${PALLET_MAP_PATH}. Pallet QTY will be null.`, err.message);
+            logger.warn({ err: err.message, path: PALLET_MAP_PATH }, 'Could not load pallet qty map; pallet QTY will be null');
             palletQtyMap = {};
         }
     }
@@ -67,10 +68,6 @@
     });
 
     const port = config.port;
-    const division = 3555770; // Exact division for Feitengacp
-    function sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
 
     // Wrap async route handlers so thrown rejections are forwarded to the
     // central error middleware via next(err). Express 4 doesn't do this natively.
@@ -129,9 +126,9 @@
 
         try {
             await fs.appendFile(logFilePath, logEntry, 'utf-8');
-            console.log(`✅ Logged successful login for ${email} to ${logFilePath} `);
+            logger.info({ email, file: logFilePath }, 'Login written to audit file');
         } catch (err) {
-            console.error(`❌ Error logging successful login for ${email}:`, err.message);
+            logger.error({ err: err.message, email }, 'Failed to write login to audit file');
         }
     }
 
@@ -139,9 +136,9 @@
         try {
             await fs.mkdir(path.dirname(TOKEN_PATH), { recursive: true });
             await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), 'utf-8');
-            console.log(`✅ Tokens saved to ${TOKEN_PATH}`);
+            logger.info({ path: TOKEN_PATH }, 'Tokens saved');
         } catch (err) {
-            console.error('❌ FATAL: Error saving tokens to file:', err);
+            logger.error({ err, path: TOKEN_PATH }, 'FATAL: failed to save tokens');
         }
     }
   
@@ -150,35 +147,22 @@
             const data = await fs.readFile(TOKEN_PATH, 'utf-8');
             return JSON.parse(data);
         } catch (err) {
-            console.log('Could not read tokens.json. A new one will be created after authorization.');
+            logger.info({ path: TOKEN_PATH }, 'No token file yet; will be created after authorization');
             return null;
         }
     }
 
     async function refreshAccessToken(refreshToken) {
-        const params = new URLSearchParams();
-        params.append('grant_type', 'refresh_token');
-        params.append('refresh_token', refreshToken);
-        params.append('client_id', config.clientId);
-        params.append('client_secret', config.clientSecret);
-
-        const response = await axios.post('https://start.exactonline.nl/api/oauth2/token', params.toString(), {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-        });
-
-        const newTokens = response.data;
-        newTokens.expires_at = Date.now() + (newTokens.expires_in * 1000); // Store expiration time in milliseconds
-        await saveTokens(newTokens); 
-        return newTokens; 
+        const newTokens = await exactClient.refreshTokens(refreshToken);
+        await saveTokens(newTokens);
+        return newTokens;
     }
 
     // This function will be called when the access token is expired or about to expire
     async function getAccessToken() {
         let tokens = await readTokens();
         if (!tokens) {
-            console.error('❌ No tokens found. Please authenticate first.');
+            logger.error('No tokens found. Please authenticate via /oauth/authorize first.');
             return null; 
         }
 
@@ -186,7 +170,7 @@
 
         // Refresh token if it has expired or about to expire in 1 min
         if (!tokens.expires_at || tokens.expires_at < now + 60 * 1000){
-            console.log('Access token expired or about to expire. Refreshing...');
+            logger.info('Access token expired or near expiry; refreshing');
             tokens = await refreshAccessToken(tokens.refresh_token);
         }
 
@@ -195,7 +179,7 @@
 
     //  === Middleware ===
     const allowedOrigins = config.allowedOrigins;
-    console.log(`✅ CORS allowed origins (${config.allowedOriginsSource}):`, allowedOrigins);
+    logger.info({ origins: allowedOrigins, source: config.allowedOriginsSource }, 'CORS allowed origins configured');
 
     const corsOptions = {
         origin: function (origin, callback) {
@@ -216,13 +200,13 @@
         const token = authHeader && authHeader.split(' ')[1]; // Get the token from the Authorization header
 
         if (token == null) {
-            console.log('❌ No token provided in request');
+            logger.warn({ url: req.originalUrl }, 'No token in request');
             return res.sendStatus(401); // If no token, unauthorized
         }
 
         jwt.verify(token, config.jwtSecret, (err, user) => {
             if (err) {
-                console.log('❌ Invalid or expired token presented.', err.message);
+                logger.warn({ err: err.message, url: req.originalUrl }, 'Invalid or expired JWT presented');
                 return res.status(403).json({ error: 'Invalid or expired token.' });
             }
             req.user = user; // Attach user info to request object
@@ -317,62 +301,31 @@
     // If lost tokens, call this endpoint to re-authorize. Needs login from client.
     app.get('/oauth/callback', asyncHandler(async (req, res) => {
         const { code } = req.query;
-        console.log("Authorization code received:", code);
-        console.log('Full query:', req.query);
+        logger.info({ codeLength: code?.length, query: Object.keys(req.query) }, 'OAuth authorization code received');
 
         if (!code) {
             return res.status(400).send('Missing authorization code');
         }
 
-        // axios.post with URLSearchParams sets Content-Type to application/x-www-form-urlencoded
-        const params = new URLSearchParams();
-        params.append('grant_type', 'authorization_code');
-        params.append('code', code);
-        params.append('redirect_uri', config.redirectUri);
-        params.append('client_id', config.clientId);
-        params.append('client_secret', config.clientSecret);
-
-        const tokenResponse = await axios.post(
-            'https://start.exactonline.nl/api/oauth2/token',
-            params.toString(),
-            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
-
-        const tokens = tokenResponse.data;
-        tokens.expires_at = Date.now() + (tokens.expires_in * 1000);
-
+        const tokens = await exactClient.exchangeAuthCode(code);
         await saveTokens(tokens);
 
-        console.log('✅ OAuth tokens received from Exact:', tokens);
+        logger.info({ expiresIn: tokens.expires_in }, 'OAuth tokens received and persisted');
         res.json(tokens);
     }));
 
     // === API endpoint for login verification ===
     app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
         const { email, password } = req.body; //receive email and password from homepage.js submit form
-        console.log(`Login attempt for email: ${email}`);
+        logger.info({ email }, 'Login attempt');
 
         const accessToken = await getAccessToken();
         if (!accessToken) {
-            console.error('❌ No Exact Online access token available for login check.');
+            logger.error('No Exact Online access token available for login check');
             return res.status(500).json({ message: 'Server error: Cannot connect to Exact Online for login.' });
         }
 
-        const exactApiUrl = `https://start.exactonline.nl/api/v1/${division}/crm/Contacts`;
-        const exactParams = {
-            '$filter': `Email eq '${email}' and SocialSecurityNumber ne null`,
-            '$select': 'ID,SocialSecurityNumber,Email,FullName'
-        };
-
-        const exactResponse = await axios.get(exactApiUrl, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                Accept: 'application/json',
-            },
-            params: exactParams
-        });
-
-        const exactContacts = exactResponse.data.d?.results || []; // Extract results from the response
+        const exactContacts = await exactClient.getContactByEmail(accessToken, email);
 
         if (exactContacts.length > 0) {
             const matchedContact = exactContacts[0]; // The filter should only return one.
@@ -383,17 +336,17 @@
 
                 await logSuccessfulLogin(email);
 
-                console.log(`✅ Login successful for ${email}. JWT generated.`);
+                logger.info({ email }, 'Login successful; JWT issued');
                 return res.json({ message: 'Login successful.', token: token });
             }
 
-            console.log('❌ Password mismatch for email:', email);
+            logger.warn({ email }, 'Login failed: password mismatch');
             // Generic error for security. Does not reveal if the email exists or not.
             return res.status(401).json({ message: 'Invalid credentials.' });
         }
 
         // No user found with that email that ALSO has a password set.
-        console.log('❌ No valid login account found in Exact Online for this email.');
+        logger.warn({ email }, 'Login failed: no Exact account with credentials for this email');
         return res.status(401).json({ message: 'Invalid credentials.' });
     }));
 
@@ -412,53 +365,12 @@
            const accessToken = await getAccessToken();
             if (!accessToken) {
                 return res.status(401).json({ error: 'Unauthorized - No valid access token' });
-            } 
-            
-            const stockPositionUrl = `https://start.exactonline.nl/api/v1/${division}/sync/Inventory/StockPositions`
-            const stockPositionParams = { 
-                '$filter': 'Timestamp gt 1',
-                '$select': [
-                    'ID', //filter ItemExtraField by this
-                    'ItemId',
-                    'ItemCode',
-                    'ItemDescription',
-                    'FreeStock',
-                    'PlanningIn',
-                    'PlanningOut',
-                    'ProjectedStock',
-                    'Timestamp'
-                ].join(',')
-             }; 
-
-            // === START OF PAGINATION FIX ===
-            let allProducts = [];
-            // Construct the full URL with parameters for the first request
-            let nextUrl = stockPositionUrl + '?' + new URLSearchParams(stockPositionParams).toString();
-
-            console.log('--- STARTING PAGINATED STOCK PULL ---');
-
-            while (nextUrl) {
-                const response = await axios.get(nextUrl, {
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        Accept: 'application/json',
-                    },
-                });
-
-                const productsOnPage = response.data.d?.results || [];
-                allProducts.push(...productsOnPage);
-                
-                // Get the URL for the next page from the __next link
-                nextUrl = response.data.d?.__next; 
-                
-                if (nextUrl) {
-                    console.log(`Fetching next page... (current total: ${allProducts.length})`);
-                }
             }
-            
-            let rawProducts = allProducts; // Use the complete list for filtering
 
-            // === END OF PAGINATION FIX ===
+            logger.info('Starting paginated stock pull from Exact');
+            const rawProducts = await exactClient.getAllStockPositions(accessToken, {
+                onPage: (currentTotal) => logger.debug({ currentTotal }, 'Fetching next stock page'),
+            });
 
             // To be filtered itemCodes
             const excludePrefixes = [  
@@ -499,7 +411,7 @@
                 return true;
             });
 
-            console.log(`Initial products: ${rawProducts.length}, Filtered products: ${filteredProducts.length}`); // Log to see diff in size before and after filter
+            logger.info({ raw: rawProducts.length, filtered: filteredProducts.length }, 'Product fetch complete');
 
             const products = filteredProducts.map(r => {
                 const parsedData = parseProductDescription(r.ItemDescription, r.ItemCode);
@@ -550,7 +462,7 @@
 
         const status = err.status || err.statusCode || 500;
         const detail = err.response?.data || err.stack || err.message || err;
-        console.error(`❌ [${req.method}] ${req.originalUrl} —`, detail);
+        logger.error({ method: req.method, url: req.originalUrl, status, err: detail }, 'Request error');
 
         const clientMessage = status >= 500
             ? 'Internal server error'
@@ -560,5 +472,5 @@
 
     // Start the server
     app.listen(port, () => {
-        console.log(`Server running on port ${port}`);
+        logger.info({ port, env: config.nodeEnv }, 'Server running');
     });
