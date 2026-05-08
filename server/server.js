@@ -1,16 +1,12 @@
-    require('dotenv').config(); // Load environment variables from .env file
+    const config = require('./config'); // Loads + validates .env on require
 
-    
-    const axios = require('axios'); 
-    const express = require('express'); 
-    const cors = require('cors'); 
-    const path = require('path');   
-    const jwt = require('jsonwebtoken'); 
+    const axios = require('axios');
+    const express = require('express');
+    const cors = require('cors');
+    const path = require('path');
+    const jwt = require('jsonwebtoken');
     const fs = require('fs').promises;
-    const { Parser } = require('xml2js');
-    const TOKEN_PATH = process.env.TOKEN_PATH
-        ? path.resolve(process.env.TOKEN_PATH)
-        : path.join(__dirname, 'tokens.json');
+    const TOKEN_PATH = config.tokenPath;
     const PALLET_MAP_PATH = path.join(__dirname, 'data', 'pallet_qty.json');
     let palletQtyMap = {};
 
@@ -38,10 +34,8 @@
     loadPalletQtyMap();
 
 
-    const parser = new Parser({ explicitArray: false, ignoreAttrs: true });
-
     const app = express();
-    const port = process.env.PORT || 5000; 
+    const port = config.port;
     const division = 3555770; // Exact division for Feitengacp
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
@@ -61,13 +55,10 @@
         '160.39039052': { color: 'Black / White' },
         '190.390052-1': { width: '2000mm' },
         '230.30112': { color: 'BF', width: '1520mm' },
-        '365.24040': { color: 'BF' },
         '365.24020': { length: '2440mm', width: '1220mm', color:'BF' },
         '365.24040': { length: '2440mm', width: '1220mm', color:'BF' },
         '365.24050': { length: '2440mm', width: '1220mm', color: 'BF' },
         '365.24110': { length: '2440mm', width: '1220mm' },
-        '365.30125': { width: '1250mm' },
-        '365.30125-2': { color: 'Gold Mirror' },
         '640.41010': { color: 'Grey/Black' },
         '640.41020': { color: 'Grey/White' },
         '640.41020-1': { length: '3050mm', width: '1500mm', color: 'Grey/White' },
@@ -76,10 +67,8 @@
         '9375.34015': { length: '4050mm' },
         '9399.32412': { length: '2440mm', width: '1220mm' },
         '9315.33015-1': { length: '3050mm', width: '1500mm' },
-        '365.24120': { length: '2440mm', width: '1220mm' },
         '365.24120-125': {length: '2440mm', width: '1250mm', color: 'Silver Mirror' },
         '365.24120': {color: 'Silver Mirror/Primer' },
-        '365.30125': {color: 'Silver Mirror/Primer' },
         '157.33015': {color: 'Silver/White' },
         '157.33020': {color: 'Silver/White' },
         '157.34015': {color: 'Silver/White' },
@@ -91,7 +80,7 @@
         '160.39039052': {length: '3050mm', width: '2050mm', color: 'Black / White'},
         '365.30125': {length: '3050mm', width: '1250mm', color: 'Silver Mirror'},
         '365.30125-2': {length: '3050mm', width: '1250mm'},
-        '180.330202  ': {length: '3050mm', width: '2050mm'},
+        '180.330202': {length: '3050mm', width: '2050mm'},
         '251.33015': {typeOfSkin: 'LITE B1 FR'},
         '251.32512': {typeOfSkin: 'LITE B1 FR'},
     };
@@ -133,8 +122,8 @@
         const params = new URLSearchParams();
         params.append('grant_type', 'refresh_token');
         params.append('refresh_token', refreshToken);
-        params.append('client_id', process.env.CLIENT_ID);
-        params.append('client_secret', process.env.CLIENT_SECRET);
+        params.append('client_id', config.clientId);
+        params.append('client_secret', config.clientSecret);
 
         const response = await axios.post('https://start.exactonline.nl/api/oauth2/token', params.toString(), {
             headers: {
@@ -168,21 +157,8 @@
     }
 
     //  === Middleware ===
-    const defaultAllowedOrigins = [
-        'http://localhost:3000',
-        'http://www.feitengacp.eu',
-        'https://www.feitengacp.eu',
-        'http://feitengacp.eu',
-        'https://feitengacp.eu'
-    ];
-
-    const envOrigins = (process.env.ALLOWED_ORIGINS || '')
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
-
-    const allowedOrigins = envOrigins.length > 0 ? envOrigins : defaultAllowedOrigins;
-    console.log(`✅ CORS allowed origins (${envOrigins.length > 0 ? 'env' : 'default'}):`, allowedOrigins);
+    const allowedOrigins = config.allowedOrigins;
+    console.log(`✅ CORS allowed origins (${config.allowedOriginsSource}):`, allowedOrigins);
 
     const corsOptions = {
         origin: function (origin, callback) {
@@ -207,7 +183,7 @@
             return res.sendStatus(401); // If no token, unauthorized
         }
 
-        jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        jwt.verify(token, config.jwtSecret, (err, user) => {
             if (err) {
                 console.log('❌ Invalid or expired token presented.', err.message);
                 return res.status(403).json({ error: 'Invalid or expired token.' });
@@ -296,7 +272,7 @@
     // === Exact OAuth2: Authorize Redirect ===
     app.get('/oauth/authorize', (req, res) => {
         const base = 'https://start.exactonline.nl/api/oauth2/auth';
-        const url = `${base}?client_id=${process.env.CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.REDIRECT_URI)}&response_type=code&force_login=1`;
+        const url = `${base}?client_id=${config.clientId}&redirect_uri=${encodeURIComponent(config.redirectUri)}&response_type=code&force_login=1`;
         res.redirect(url);
     });
 
@@ -316,9 +292,9 @@
             const params = new URLSearchParams();
             params.append('grant_type', 'authorization_code');
             params.append('code', code);
-            params.append('redirect_uri', process.env.REDIRECT_URI);
-            params.append('client_id', process.env.CLIENT_ID);
-            params.append('client_secret', process.env.CLIENT_SECRET);
+            params.append('redirect_uri', config.redirectUri);
+            params.append('client_id', config.clientId);
+            params.append('client_secret', config.clientSecret);
 
             const tokenResponse = await axios.post(
                 'https://start.exactonline.nl/api/oauth2/token',
@@ -383,13 +359,8 @@
 
                 if (matchedContact.SocialSecurityNumber === password) {
 
-                    if (!process.env.JWT_SECRET) {
-                        console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
-                        return res.status(500).json({ message: 'Server configuration error.' });
-                    }
-                    
                     const user = { id: matchedContact.ID, email: matchedContact.Email, name: matchedContact.FullName };
-                    const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' }); // Create a JWT token with user data
+                    const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' }); // Create a JWT token with user data
 
                     await logSuccessfulLogin(email); // print the login to the log file for inspection
 
@@ -552,7 +523,7 @@
     // --- Static File Serving (production only) ---
     // In dev, CRA serves the frontend on its own port; the API server should not
     // try to serve client/build (which may not even exist).
-    if (process.env.NODE_ENV === 'production') {
+    if (config.nodeEnv === 'production') {
         const clientBuildPath = path.resolve(__dirname, '../client/build');
         app.use(express.static(clientBuildPath));
 
