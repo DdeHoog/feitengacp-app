@@ -3,6 +3,7 @@
     const axios = require('axios');
     const express = require('express');
     const cors = require('cors');
+    const helmet = require('helmet');
     const path = require('path');
     const jwt = require('jsonwebtoken');
     const fs = require('fs').promises;
@@ -35,6 +36,17 @@
 
 
     const app = express();
+    // CSP is disabled for now: CRA dev uses inline scripts/eval for HMR, and the
+    // CRA prod build embeds an inline runtime loader in index.html. Both would be
+    // broken by helmet's default CSP. Tightening CSP is a separate hardening step.
+    // CORP: in prod the SPA and API share an origin, so 'same-origin' is correct.
+    // In dev, CRA on :3000 fetches from API on :5000 (cross-origin) — must relax.
+    app.use(helmet({
+        contentSecurityPolicy: false,
+        crossOriginResourcePolicy: {
+            policy: config.nodeEnv === 'production' ? 'same-origin' : 'cross-origin',
+        },
+    }));
     const port = config.port;
     const division = 3555770; // Exact division for Feitengacp
     function sleep(ms) {
