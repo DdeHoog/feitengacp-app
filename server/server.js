@@ -72,6 +72,12 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    // Wrap async route handlers so thrown rejections are forwarded to the
+    // central error middleware via next(err). Express 4 doesn't do this natively.
+    const asyncHandler = (fn) => (req, res, next) => {
+        Promise.resolve(fn(req, res, next)).catch(next);
+    };
+
     // For parsin description
     const KNOWN_COLORS = ['Ivorywhite', 'Ivory', 'Yellow', 'Orange', 'Red', 'Blue', 'Green', 'Grey', 'Lightgrey', 'Traffic grey', 'Brown', 'Black', 'Black / White', 'Silver metallic', 'Bronze', 'Copper', 'Gold', 'Gold Mirror', 'Whiteboard', 'White', 'ALU BF', 'BF', 'Silver', 'Silver Mirror',];
     const KNOWN_THICKNESSES = ['2mm', '3mm', '4mm', '6mm', '8mm'];
@@ -309,7 +315,7 @@
 
     // === Exact OAuth2: Callback Handler ===
     // If lost tokens, call this endpoint to re-authorize. Needs login from client.
-    app.get('/oauth/callback', async (req, res) => {
+    app.get('/oauth/callback', asyncHandler(async (req, res) => {
         const { code } = req.query;
         console.log("Authorization code received:", code);
         console.log('Full query:', req.query);
@@ -318,115 +324,91 @@
             return res.status(400).send('Missing authorization code');
         }
 
-        try {
-            // Note: axios.post with params will automatically set Content-Type to application/x-www-form-urlencoded
-            const params = new URLSearchParams();
-            params.append('grant_type', 'authorization_code');
-            params.append('code', code);
-            params.append('redirect_uri', config.redirectUri);
-            params.append('client_id', config.clientId);
-            params.append('client_secret', config.clientSecret);
+        // axios.post with URLSearchParams sets Content-Type to application/x-www-form-urlencoded
+        const params = new URLSearchParams();
+        params.append('grant_type', 'authorization_code');
+        params.append('code', code);
+        params.append('redirect_uri', config.redirectUri);
+        params.append('client_id', config.clientId);
+        params.append('client_secret', config.clientSecret);
 
-            const tokenResponse = await axios.post(
-                'https://start.exactonline.nl/api/oauth2/token',
-                params.toString(), 
-                {
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                }
-            )
+        const tokenResponse = await axios.post(
+            'https://start.exactonline.nl/api/oauth2/token',
+            params.toString(),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
 
-            const tokens = tokenResponse.data;
-            tokens.expires_at = Date.now() + (tokens.expires_in * 1000); 
-            
-            await saveTokens(tokens); 
+        const tokens = tokenResponse.data;
+        tokens.expires_at = Date.now() + (tokens.expires_in * 1000);
 
-            console.log('✅ OAuth tokens received from Exact:', tokens);
-            res.json(tokens); 
-                
-        } catch (error) { 
-            console.error('❌ Error during token exchange:', error.response?.data || error.message);
-            res.status(500).send('OAuth failed. See server logs for details.');
-        }
-    });
+        await saveTokens(tokens);
+
+        console.log('✅ OAuth tokens received from Exact:', tokens);
+        res.json(tokens);
+    }));
 
     // === API endpoint for login verification ===
-    app.post('/api/login', loginLimiter, async (req, res) => {
+    app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
         const { email, password } = req.body; //receive email and password from homepage.js submit form
         console.log(`Login attempt for email: ${email}`);
 
-        try {
-            const accessToken = await getAccessToken();
-            if (!accessToken) {
-                console.error('❌ No Exact Online access token available for login check.');
-                return res.status(500).json({ message: 'Server error: Cannot connect to Exact Online for login.' });
-            }
-
-            const exactApiUrl = `https://start.exactonline.nl/api/v1/${division}/crm/Contacts`;
-            const exactParams = {
-                '$filter': `Email eq '${email}' and SocialSecurityNumber ne null`, 
-                '$select': 'ID,SocialSecurityNumber,Email,FullName' 
-            };
-
-            const exactResponse = await axios.get(exactApiUrl, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Accept: 'application/json',
-                },
-                params: exactParams
-            });
-
-            const exactContacts = exactResponse.data.d?.results || []; // Extract results from the response
-            /* console.log('--- RAW EXACT ONLINE CRM ACCOUNTS RESPONSE (FOR INSPECTION) ---');
-            console.log(JSON.stringify(exactContacts, null, 2));
-            console.log('--------------------------------------------------------------'); */
-
-
-            
-            if (exactContacts.length > 0) {
-                // Find the account that matches the provided email (case-insensitive for robustness)
-                const matchedContact = exactContacts[0] // The filter should only return one.
-
-                if (matchedContact.SocialSecurityNumber === password) {
-
-                    const user = { id: matchedContact.ID, email: matchedContact.Email, name: matchedContact.FullName };
-                    const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' }); // Create a JWT token with user data
-
-                    await logSuccessfulLogin(email); // print the login to the log file for inspection
-
-                    console.log(`✅ Login successful for ${email}. JWT generated.`);
-                    res.json({ message: 'Login successful.', token: token });
-
-                } else {
-                    console.log('❌ Password mismatch for email:', email);
-                    // Generic error for security. Does not reveal if the email exists or not.
-                    return res.status(401).json({ message: 'Invalid credentials.' });
-                } 
-            } else {
-                // This means "no user found with that email that ALSO has a password set".
-                console.log('❌ No valid login account found in Exact Online for this email.');
-                return res.status(401).json({ message: 'Invalid credentials.' });
-            }
-        } catch (error) {
-                console.error('❌ Error during /api/login:', error.response?.data || error.message);
-                return res.status(500).json({ message: 'Server error during login process.' });
+        const accessToken = await getAccessToken();
+        if (!accessToken) {
+            console.error('❌ No Exact Online access token available for login check.');
+            return res.status(500).json({ message: 'Server error: Cannot connect to Exact Online for login.' });
         }
-    });
+
+        const exactApiUrl = `https://start.exactonline.nl/api/v1/${division}/crm/Contacts`;
+        const exactParams = {
+            '$filter': `Email eq '${email}' and SocialSecurityNumber ne null`,
+            '$select': 'ID,SocialSecurityNumber,Email,FullName'
+        };
+
+        const exactResponse = await axios.get(exactApiUrl, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: 'application/json',
+            },
+            params: exactParams
+        });
+
+        const exactContacts = exactResponse.data.d?.results || []; // Extract results from the response
+
+        if (exactContacts.length > 0) {
+            const matchedContact = exactContacts[0]; // The filter should only return one.
+
+            if (matchedContact.SocialSecurityNumber === password) {
+                const user = { id: matchedContact.ID, email: matchedContact.Email, name: matchedContact.FullName };
+                const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' });
+
+                await logSuccessfulLogin(email);
+
+                console.log(`✅ Login successful for ${email}. JWT generated.`);
+                return res.json({ message: 'Login successful.', token: token });
+            }
+
+            console.log('❌ Password mismatch for email:', email);
+            // Generic error for security. Does not reveal if the email exists or not.
+            return res.status(401).json({ message: 'Invalid credentials.' });
+        }
+
+        // No user found with that email that ALSO has a password set.
+        console.log('❌ No valid login account found in Exact Online for this email.');
+        return res.status(401).json({ message: 'Invalid credentials.' });
+    }));
 
     // Example API endpoint to test token retrieval
-    app.get('/api/test-token', async (req, res) => {
+    app.get('/api/test-token', asyncHandler(async (req, res) => {
         const accessToken = await getAccessToken();
         if (accessToken){
             res.json({ message: 'Access token retreived successfully', token: accessToken });
         }else {
             res.status(401).json({ error: 'Failed to retrieve access token' });
         }
-    });
+    }));
 
     // === Product page API, sync from stockPosition with extra fields for product details ===
-    app.get('/api/products', authenticateToken, async (req, res) => {
-        try {
+    app.get('/api/products', authenticateToken, asyncHandler(async (req, res) => {
            const accessToken = await getAccessToken();
             if (!accessToken) {
                 return res.status(401).json({ error: 'Unauthorized - No valid access token' });
@@ -543,12 +525,7 @@
             });
 
             res.json(products); // Send the products data as JSON response
-
-        } catch (error) {
-            console.error('❌ Error fetching products from Exact - /api/products:', error.response?.data || error.message);
-            res.status(500).json({ error: 'Server error contacting Exact' });
-        }
-    });
+    }));
 
 
     // --- Static File Serving (production only) ---
@@ -563,6 +540,23 @@
             res.sendFile(path.join(clientBuildPath, 'index.html'));
         });
     }
+
+    // Central error handler. Runs whenever a route forwards an error via
+    // next(err) or asyncHandler catches an async rejection. Logs with route
+    // context and returns a consistent JSON shape. The dual `error`/`message`
+    // keys exist for backwards compat with existing frontend readers.
+    app.use((err, req, res, next) => {
+        if (res.headersSent) return next(err);
+
+        const status = err.status || err.statusCode || 500;
+        const detail = err.response?.data || err.stack || err.message || err;
+        console.error(`❌ [${req.method}] ${req.originalUrl} —`, detail);
+
+        const clientMessage = status >= 500
+            ? 'Internal server error'
+            : (err.publicMessage || err.message || 'Request failed');
+        res.status(status).json({ error: clientMessage, message: clientMessage });
+    });
 
     // Start the server
     app.listen(port, () => {
