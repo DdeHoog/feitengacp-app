@@ -124,7 +124,7 @@ You should see:
 Forwarding   https://iritic-yanira-postgenital.ngrok-free.dev -> http://localhost:5000
 ```
 
-Quick sanity check from any browser: `https://iritic-yanira-postgenital.ngrok-free.dev/api/test-token`. If the local server is reachable, you'll see a JSON response (it'll say "Failed to retrieve access token" until the OAuth step is done — that's expected).
+Quick sanity check: open `https://iritic-yanira-postgenital.ngrok-free.dev/oauth/authorize` in any browser. If ngrok is correctly forwarding to your local server, you'll be redirected to Exact's login page (`Cannot GET /` on the bare URL is also fine — it just means you reached the server with no route registered for `/`).
 
 > **ngrok must be running every time you authorize, log into Exact through the app, or refresh tokens via the dev OAuth app.** Once tokens are saved to `tokens.dev.json`, normal `/api/products` calls go directly through your local server and don't need ngrok — but the moment a refresh fails or you re-authorize, the callback URL must reach your local server again.
 
@@ -157,11 +157,9 @@ Tokens for the new dev Exact app can only be created by someone with the right E
 ```powershell
 # Inspect that the tokens file exists
 Test-Path .\server\storage\tokens.dev.json
-
-# Hit the dev test-token endpoint (not authenticated — public)
-curl http://localhost:5000/api/test-token
-# Should return: {"message":"Access token retreived successfully","token":"..."}
 ```
+
+Then open `http://localhost:3000`, log in with a normal user account, and confirm the product list loads. That's the real proof — token flow → Exact API → product parser → frontend all working end-to-end.
 
 Once that works, the dev environment is self-sufficient. The server auto-refreshes tokens before they expire. The client never needs to do this again unless the refresh token itself is invalidated (Exact rotates them after ~30 days of inactivity).
 

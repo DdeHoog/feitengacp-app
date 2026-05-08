@@ -350,15 +350,40 @@
         return res.status(401).json({ message: 'Invalid credentials.' });
     }));
 
-    // Example API endpoint to test token retrieval
-    app.get('/api/test-token', asyncHandler(async (req, res) => {
-        const accessToken = await getAccessToken();
-        if (accessToken){
-            res.json({ message: 'Access token retreived successfully', token: accessToken });
-        }else {
-            res.status(401).json({ error: 'Failed to retrieve access token' });
-        }
-    }));
+    // Dev-only debug endpoints. Mounted only when NOT production AND require a
+    // valid JWT. Useful for probing Exact API endpoints during investigation
+    // (e.g., finding the right endpoint for product specs to replace
+    // itemCodeExceptions / palletQty hardcoded data).
+    if (config.nodeEnv !== 'production') {
+        app.get('/api/debug/access-token', authenticateToken, asyncHandler(async (req, res) => {
+            const accessToken = await getAccessToken();
+            if (!accessToken) return res.status(404).json({ error: 'No tokens available — run /oauth/authorize' });
+            const tokens = await readTokens();
+            res.json({ access_token: accessToken, expires_at: tokens?.expires_at });
+        }));
+
+        app.get('/api/debug/exact', authenticateToken, asyncHandler(async (req, res) => {
+            const { path: exactPath, ...params } = req.query;
+            const accessToken = await getAccessToken();
+            if (!accessToken) return res.status(401).json({ error: 'No Exact access token' });
+            try {
+                const { status, data } = await exactClient.debugGet(exactPath, params, accessToken);
+                res.status(status).json(data);
+            } catch (err) {
+                if (err.response) {
+                    // Surface Exact's own error response so the caller can see
+                    // exactly what Exact said (status code + body).
+                    return res.status(err.response.status).json({
+                        exactStatus: err.response.status,
+                        exactBody: err.response.data,
+                    });
+                }
+                throw err; // unknown — let central error middleware handle it
+            }
+        }));
+
+        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact');
+    }
 
     // === Product page API, sync from stockPosition with extra fields for product details ===
     app.get('/api/products', authenticateToken, asyncHandler(async (req, res) => {

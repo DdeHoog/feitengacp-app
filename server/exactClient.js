@@ -94,10 +94,28 @@ async function getAllStockPositions(accessToken, { onPage } = {}) {
     return all;
 }
 
+// Generic GET for the dev-only debug proxy. Accepts any Exact API path so the
+// caller can probe endpoints during investigation. Requires path to start with
+// '/api/' so an attacker who somehow bypasses the route gates can't redirect
+// us to an arbitrary host. NEVER mount the calling route in production.
+async function debugGet(path, params, accessToken) {
+    if (typeof path !== 'string' || !path.startsWith('/api/')) {
+        const err = new Error("debugGet: path must be a string starting with /api/");
+        err.status = 400;
+        throw err;
+    }
+    const response = await client.get(path, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params,
+    });
+    return { status: response.status, data: response.data };
+}
+
 module.exports = {
     DIVISION,
     exchangeAuthCode,
     refreshTokens,
     getContactByEmail,
     getAllStockPositions,
+    debugGet,
 };
