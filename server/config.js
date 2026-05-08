@@ -29,6 +29,19 @@ const envOrigins = (process.env.ALLOWED_ORIGINS || '')
 const allowedOrigins = envOrigins.length > 0 ? envOrigins : DEFAULT_ALLOWED_ORIGINS;
 const allowedOriginsSource = envOrigins.length > 0 ? 'env' : 'default';
 
+// TRUST_PROXY: set when the server sits behind a reverse proxy (nginx, Caddy,
+// Cloudflare Tunnel, etc.) so Express reads the real client IP from
+// X-Forwarded-For. Accepts: number of hops ('1'), 'true', 'loopback',
+// 'linklocal', 'uniquelocal', or an IP/CIDR. Unset = no trust (safe default).
+function parseTrustProxy(raw) {
+    if (!raw) return false;
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    const asNumber = Number(raw);
+    if (!Number.isNaN(asNumber)) return asNumber;
+    return raw; // pass through string values like 'loopback'
+}
+
 module.exports = {
     nodeEnv: process.env.NODE_ENV || 'development',
     port: Number(process.env.PORT) || 5000,
@@ -41,4 +54,5 @@ module.exports = {
         : path.join(__dirname, 'tokens.json'),
     allowedOrigins,
     allowedOriginsSource,
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
 };

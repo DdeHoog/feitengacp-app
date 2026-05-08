@@ -4,6 +4,7 @@
     const express = require('express');
     const cors = require('cors');
     const helmet = require('helmet');
+    const rateLimit = require('express-rate-limit');
     const path = require('path');
     const jwt = require('jsonwebtoken');
     const fs = require('fs').promises;
@@ -36,6 +37,12 @@
 
 
     const app = express();
+    // Required so express-rate-limit (and req.ip) can read the real client IP
+    // from X-Forwarded-For when the server is behind a reverse proxy in prod.
+    // Configured via TRUST_PROXY env var; falls back to false (no trust) in dev.
+    if (config.trustProxy !== false) {
+        app.set('trust proxy', config.trustProxy);
+    }
     // CSP is disabled for now: CRA dev uses inline scripts/eval for HMR, and the
     // CRA prod build embeds an inline runtime loader in index.html. Both would be
     // broken by helmet's default CSP. Tightening CSP is a separate hardening step.
@@ -47,6 +54,18 @@
             policy: config.nodeEnv === 'production' ? 'same-origin' : 'cross-origin',
         },
     }));
+
+    // Rate limiter for /api/login: caps brute-force / credential-stuffing attempts.
+    // 10 attempts per 15-minute window per IP. Real users with typos still have
+    // headroom; an attacker hits the wall in seconds.
+    const loginLimiter = rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { message: 'Too many login attempts. Try again in 15 minutes.' },
+    });
+
     const port = config.port;
     const division = 3555770; // Exact division for Feitengacp
     function sleep(ms) {
@@ -333,7 +352,7 @@
     });
 
     // === API endpoint for login verification ===
-    app.post('/api/login', async (req, res) => {
+    app.post('/api/login', loginLimiter, async (req, res) => {
         const { email, password } = req.body; //receive email and password from homepage.js submit form
         console.log(`Login attempt for email: ${email}`);
 
