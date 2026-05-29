@@ -76,6 +76,11 @@ function HomePage() {
                       {notification}
                   </div>
               )}
+              {error && (
+                  <div className="mb-4 p-3 rounded-md bg-red-100 text-red-800 border border-red-300 text-center">
+                      {error}
+                  </div>
+              )}
               <h2 className="text-xl xl:text-2xl font-semibold text-gray-800 mb-4">Login</h2>
               <form onSubmit={handleSubmit}>
                 <div className="mb-4">

@@ -29,6 +29,14 @@ const envOrigins = (process.env.ALLOWED_ORIGINS || '')
 const allowedOrigins = envOrigins.length > 0 ? envOrigins : DEFAULT_ALLOWED_ORIGINS;
 const allowedOriginsSource = envOrigins.length > 0 ? 'env' : 'default';
 
+// EXPORT_ALLOWED_EMAILS: comma-separated list of emails permitted to export the
+// product table to CSV. Normalized to lowercase for case-insensitive matching.
+// Unset = empty list = the export option is hidden for everyone (safe default).
+const exportAllowedEmails = (process.env.EXPORT_ALLOWED_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
 // TRUST_PROXY: set when the server sits behind a reverse proxy (nginx, Caddy,
 // Cloudflare Tunnel, etc.) so Express reads the real client IP from
 // X-Forwarded-For. Accepts: number of hops ('1'), 'true', 'loopback',
@@ -54,5 +62,6 @@ module.exports = {
         : path.join(__dirname, 'tokens.json'),
     allowedOrigins,
     allowedOriginsSource,
+    exportAllowedEmails,
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
 };

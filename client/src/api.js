@@ -25,7 +25,11 @@ export const setupInterceptors = (logout) => {
     (response) => response,
     
     (error) => {
-      if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      // The login request's own 401 (wrong credentials) must NOT be treated as
+      // an expired session — otherwise a bad password shows "session expired"
+      // instead of "Invalid credentials." Let HomePage surface that error.
+      const isLoginRequest = error.config?.url?.includes('/api/login');
+      if (!isLoginRequest && error.response && (error.response.status === 401 || error.response.status === 403)) {
         console.log("Auth interceptor: Unauthorized or expired token. Logging out.");
 
         logout({ message: "Your session has expired. Please log in again." });

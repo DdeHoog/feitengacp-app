@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import useProducts from '../hooks/useProducts';
+import { useAuth } from '../authContext';
 
 function ProductList() {
     const { products, loading, error } = useProducts();
+    const { canExport } = useAuth();
     const [filters, setFilters] = useState({});
     const [activeDropdown, setActiveDropdown] = useState(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -144,8 +146,57 @@ function ProductList() {
         { label: 'Pallet QTY', key: 'Pallet QTY' },
     ];
 
+    const stockKeys = ['Free Stock', 'Planned In', 'Expected Stock'];
+
+    const downloadCsv = () => {
+        // RFC 4180 quoting: wrap in quotes only when the value contains a comma,
+        // quote, or newline, and double any embedded quotes.
+        const escape = (value) => {
+            const s = value == null ? '' : String(value);
+            return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+
+        const formatCell = (product, key) => {
+            if (stockKeys.includes(key)) return formatStock(product[key]);
+            if (key === 'Pallet QTY') {
+                return product[key] == null ? '' : Number(product[key]);
+            }
+            return product[key];
+        };
+
+        const lines = [
+            headers.map((h) => escape(h.label)).join(','),
+            ...filteredProducts.map((p) =>
+                headers.map((h) => escape(formatCell(p, h.key))).join(',')
+            ),
+        ];
+        // Leading BOM so Excel opens UTF-8 (accented color names) correctly.
+        const csv = '﻿' + lines.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const today = new Date().toISOString().slice(0, 10);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `feitengacp-products-${today}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <div className="container p-4">
+            {canExport && (
+                <div className="flex justify-start mb-3">
+                    <button
+                        onClick={downloadCsv}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#003F84] text-white text-sm font-semibold shadow hover:bg-[#00457F] transition-colors"
+                    >
+                        <span className="text-base leading-none">&#x2B07;</span>
+                        Download CSV
+                    </button>
+                </div>
+            )}
             <div className="rounded-lg shadow-lg flex flex-col">
                 <div className="overflow-y-auto h-[77vh]">
                     <table className="min-w-full divide-y divide-gray-200">

@@ -331,7 +331,15 @@
             const matchedContact = exactContacts[0]; // The filter should only return one.
 
             if (matchedContact.SocialSecurityNumber === password) {
-                const user = { id: matchedContact.ID, email: matchedContact.Email, name: matchedContact.FullName };
+                const canExport = config.exportAllowedEmails.includes(
+                    (matchedContact.Email || '').toLowerCase()
+                );
+                const user = {
+                    id: matchedContact.ID,
+                    email: matchedContact.Email,
+                    name: matchedContact.FullName,
+                    canExport,
+                };
                 const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' });
 
                 await logSuccessfulLogin(email);

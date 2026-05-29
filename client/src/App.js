@@ -6,7 +6,7 @@ import { AuthProvider } from './authContext';
 // imports for the components/pages
 import Layout from './components/Layout';
 import HomePage from './components/HomePage';
-import ProductPage from './components/ProductPage';
+import ProductList from './components/ProductList';
 import DownloadPage from './components/DownloadPage';
 
 function App() {
@@ -23,7 +23,7 @@ function App() {
             <Route path="/" element={<Layout />}>
               {/* The index route is the default child route for the parent '/' so we land on homepage */}
               <Route index element={<HomePage />} />
-              <Route path="stock" element={<ProductPage />} />
+              <Route path="stock" element={<ProductList />} />
               <Route path="contact" element={<DownloadPage />} />
             </Route>
           </Routes>
