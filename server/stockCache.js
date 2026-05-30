@@ -98,11 +98,23 @@ async function runSync(getAccessToken, { full = false } = {}) {
 // Kicks off an initial full sync (not awaited — boot stays fast and the route
 // falls back to a live pull until the cache is warm) and schedules delta polls.
 // `getAccessToken` is injected to avoid a circular dependency on server.js.
-function start(getAccessToken) {
+// Optional hooks let dependents piggyback on the same cadence (no second timer):
+//   onReady() — fired once, after the first successful sync (cache is populated)
+//   onPoll()  — fired after each successful delta poll thereafter
+function start(getAccessToken, hooks = {}) {
     if (timer) return; // already started
-    runSync(getAccessToken, { full: true });
-    timer = setInterval(() => {
-        runSync(getAccessToken, { full: false });
+    let firstReadyFired = false;
+    const fireReady = (ok) => {
+        if (ok && !firstReadyFired && hooks.onReady) {
+            firstReadyFired = true;
+            hooks.onReady();
+        }
+    };
+    runSync(getAccessToken, { full: true }).then(fireReady);
+    timer = setInterval(async () => {
+        const ok = await runSync(getAccessToken, { full: false });
+        fireReady(ok);
+        if (ok && firstReadyFired && hooks.onPoll) hooks.onPoll();
     }, config.stockSyncIntervalMs);
     if (timer.unref) timer.unref(); // don't keep the process alive just for the poller
     logger.info({ intervalMs: config.stockSyncIntervalMs }, 'stockCache poller started');

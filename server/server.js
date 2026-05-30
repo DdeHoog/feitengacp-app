@@ -2,6 +2,7 @@
     const logger = require('./logger');
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
+    const itemFieldsCache = require('./itemFieldsCache');
 
     const express = require('express');
     const cors = require('cors');
@@ -289,6 +290,103 @@
         return parsedData;
     }
 
+    // Item-code prefixes excluded from the catalog (non-ACP ranges, accessories,
+    // etc.). Shared by /api/products and the item-fields warmer so both agree on
+    // which items are "visible". The future admin show/hide-products toggle will
+    // replace this hardcoded list.
+    const EXCLUDE_PREFIXES = [
+        '20', '21', '22', '30', '317', '321', '322', '323', '324', '326', '327', '328', '329', '33', '35', '60', '61', '615', '62', '62', '63', '63', '645', '65', '66', '71', '777', '97', '98', '981', '982', '99', '230.ALUBF'
+    ];
+
+    // Apply the catalog visibility rules to raw StockPosition rows.
+    function filterVisibleProducts(rawRows) {
+        return rawRows.filter((product) => {
+            const code = product.ItemCode;
+            const freeStock = parseInt(product.FreeStock) || 0;
+            const expectedStock = parseInt(product.ProjectedStock) || 0;
+            const plannedIn = parseInt(product.PlanningIn) || 0;
+            const plannedOut = parseInt(product.PlanningOut) || 0;
+
+            if (typeof code !== 'string') return false;
+            if (code.toUpperCase().includes('EBRI')) return false;
+            if (code.startsWith('9')) {
+                if (freeStock === 0 || expectedStock === 0) return false;
+            }
+            if (EXCLUDE_PREFIXES.some((prefix) => code.startsWith(prefix))) return false;
+            if (freeStock === 0 && plannedIn === 0 && expectedStock === 0 && plannedOut === 0) return false;
+
+            return true;
+        });
+    }
+
+    // Dutch/RAL color strings from ItemExtraField (field 5) → the English labels
+    // the UI uses. Keys are lowercased for case-insensitive lookup. Built from the
+    // full set of distinct catalog values (2026-05-30). Two corrections vs the old
+    // regex output: "9005 Zwart" was wrongly shown as Red (it's Black), and
+    // "Gold Mirror" showed as just Gold. Unmapped values fall back to the regex
+    // color and are logged once so new colors can be added here.
+    const COLOR_MAP = {
+        '1015 ivoorwit': 'Ivory',
+        '1023 geel': 'Yellow',
+        '3020 rood': 'Red',
+        '5002 blauw': 'Blue',
+        '5022 blauw': 'Blue',
+        '6005 groen': 'Green',
+        '6024 groen': 'Green',
+        '7016 grey 9005 blck': 'Grey/Black',
+        '7016 grijs': 'Grey',
+        '7021 grey 9010 white': 'Grey/White',
+        '7042 traffic grey': 'Grey',
+        '9003 whiteboard': 'Whiteboard',
+        '9003 wit 9006 silver': 'Silver/White',
+        '9003 wit': 'White',
+        '9003 wit / 9005 zwart': 'Black / White',
+        '9005 zwart': 'Black',
+        '9006 zilver metallic': 'Silver',
+        'alu bf digital / 9006 m': 'ALU BF Digital',
+        'black bf / primer': 'Black BF',
+        'copper (bf) / primer': 'Copper BF',
+        'gold bf / primer': 'Gold BF',
+        'gold mirror / primer': 'Gold Mirror',
+        'silver mirror / primer': 'Silver Mirror',
+    };
+
+    const warnedColors = new Set();
+    function translateColor(apiColor) {
+        const key = String(apiColor).trim().toLowerCase();
+        const mapped = COLOR_MAP[key];
+        if (mapped) return mapped;
+        if (!warnedColors.has(key)) {
+            warnedColors.add(key);
+            logger.warn({ apiColor }, 'Unmapped API color — using regex fallback; add it to COLOR_MAP');
+        }
+        return null;
+    }
+
+    // Resolve a product's spec fields, preferring cached ItemExtraField (API)
+    // values over the legacy regex/exception parser. API is authoritative; regex
+    // is the fallback when an API field is missing (and for any unmapped color).
+    // Formatting matches the existing UI: mm appended to dimensions, thickness
+    // de-spaced ("2 mm" -> "2mm"), pallet qty as a number.
+    function resolveProductFields(r) {
+        const regex = parseProductDescription(r.ItemDescription, r.ItemCode);
+        const regexPallet = palletQtyMap[normalizeItemCode(r.ItemCode)] ?? null;
+        const api = itemFieldsCache.get(r.ItemId);
+
+        const withUnit = (v) => (v == null || v === '' ? null : `${String(v).trim()}mm`);
+        const noSpace = (v) => (v == null || v === '' ? null : String(v).replace(/\s+/g, ''));
+        const apiColor = api && api.color ? translateColor(api.color) : null;
+
+        return {
+            typeOfSkin: (api && api.skinType) || regex.typeOfSkin || '',
+            thickness: noSpace(api && api.thickness) || regex.thickness || '',
+            color: apiColor || regex.color || '',
+            length: withUnit(api && api.length) || regex.length || '',
+            width: withUnit(api && api.width) || regex.width || '',
+            palletQty: api && api.palletQty != null ? Number(api.palletQty) : regexPallet,
+        };
+    }
+
 
     // === API ROUTES ===
     // === Exact OAuth2: Authorize Redirect ===
@@ -396,7 +494,41 @@
             res.json(stockCache.getStatus());
         });
 
-        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact, /api/debug/cache');
+        // Phase 1 ItemExtraField audit: per visible item, compare the cached API
+        // spec fields against the current regex/exception parser. Observe-only —
+        // /api/products output is still driven by the regex path. Dimensions are
+        // compared digits-only (regex "1500mm" vs API "1500" should match); Color
+        // is reported raw (Dutch API vs English regex) and not counted as a diff
+        // until the Phase 2 color mapping lands.
+        app.get('/api/debug/item-fields', authenticateToken, (req, res) => {
+            const digits = (v) => (v == null ? '' : String(v).replace(/\D/g, ''));
+            const text = (v) => (v == null ? '' : String(v).trim().toUpperCase());
+            const visible = filterVisibleProducts(stockCache.getAll());
+            let withApi = 0;
+            let withDiffs = 0;
+            const items = visible.map((r) => {
+                const regex = parseProductDescription(r.ItemDescription, r.ItemCode);
+                const regexPallet = palletQtyMap[normalizeItemCode(r.ItemCode)] ?? null;
+                const api = itemFieldsCache.get(r.ItemId);
+                if (!api) return { code: r.ItemCode, itemId: r.ItemId, api: null };
+                withApi++;
+                const diffs = {};
+                if (digits(regex.width) !== digits(api.width)) diffs.width = { regex: regex.width, api: api.width };
+                if (digits(regex.length) !== digits(api.length)) diffs.length = { regex: regex.length, api: api.length };
+                if (digits(regex.thickness) !== digits(api.thickness)) diffs.thickness = { regex: regex.thickness, api: api.thickness };
+                if (text(regex.typeOfSkin) !== text(api.skinType)) diffs.skinType = { regex: regex.typeOfSkin, api: api.skinType };
+                if (digits(regexPallet) !== digits(api.palletQty)) diffs.palletQty = { regex: regexPallet, api: api.palletQty };
+                if (Object.keys(diffs).length) withDiffs++;
+                return { code: r.ItemCode, itemId: r.ItemId, color: { regex: regex.color, api: api.color }, diffs };
+            });
+            res.json({
+                cache: itemFieldsCache.getStatus(),
+                summary: { visible: visible.length, withApi, withDiffs },
+                items,
+            });
+        });
+
+        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact, /api/debug/cache, /api/debug/item-fields');
     }
 
     // === Product page API, sync from stockPosition with extra fields for product details ===
@@ -419,53 +551,12 @@
                 });
             }
 
-            // To be filtered itemCodes
-            const excludePrefixes = [  
-                '20', '21', '22', '30', '317', '321', '322', '323', '324', '326', '327', '328', '329', '33', '35', '60', '61', '615', '62', '62', '63', '63', '645', '65', '66', '71', '777', '97', '98', '981', '982', '99', '230.ALUBF'
-            ]; 
-
-            // filter out unused products BEFORE calling extraFields
-            const filteredProducts = rawProducts.filter(product => {
-                const code = product.ItemCode;
-                const freeStock = parseInt(product.FreeStock) || 0;
-                const expectedStock = parseInt(product.ProjectedStock) || 0;
-                const plannedIn = parseInt(product.PlanningIn) || 0;
-                const plannedOut = parseInt(product.PlanningOut) || 0;
-
-                if (typeof code !== 'string') return false;
-
-                if (code.toUpperCase().includes('EBRI')) {
-                    return false;
-                }
-
-                if (code.startsWith('9')) {
-                    
-                    if (freeStock === 0 || expectedStock === 0) {
-                        return false;
-                    }
-                }
-                
-                const startsWithExcluded = excludePrefixes.some(prefix => code.startsWith(prefix));
-                if (startsWithExcluded) {
-                    return false;
-                }
-
-                if (freeStock === 0 && plannedIn === 0 && expectedStock === 0 && plannedOut === 0) {
-                    return false;
-                }
-
-                // If none of the above rules apply, keep the product
-                return true;
-            });
+            const filteredProducts = filterVisibleProducts(rawProducts);
 
             logger.info({ raw: rawProducts.length, filtered: filteredProducts.length }, 'Product fetch complete');
 
             const products = filteredProducts.map(r => {
-                const parsedData = parseProductDescription(r.ItemDescription, r.ItemCode);
-
-                const palletKey = normalizeItemCode(r.ItemCode);
-                const palletQty = palletQtyMap[palletKey] ?? null;
-
+                const f = resolveProductFields(r);
                 return {
                     id: r.ItemId,
                     "Item Code": r.ItemCode,
@@ -474,12 +565,12 @@
                     "Planned In": r.PlanningIn,
                     "Planning Out": r.PlanningOut,
                     "Expected Stock": r.ProjectedStock,
-                    "Type of Skin": parsedData.typeOfSkin,
-                    "Thickness": parsedData.thickness,
-                    "Color": parsedData.color,
-                    "Length": parsedData.length || '',
-                    "Width": parsedData.width || '',
-                    "Pallet QTY": palletQty,
+                    "Type of Skin": f.typeOfSkin,
+                    "Thickness": f.thickness,
+                    "Color": f.color,
+                    "Length": f.length,
+                    "Width": f.width,
+                    "Pallet QTY": f.palletQty,
                 };
             });
 
@@ -520,7 +611,14 @@
     // Warm the product cache and start the delta poller. Not awaited: the first
     // /api/products request before the cache is ready falls back to a one-off
     // live pull (see the route), and every request after reads the warm cache.
-    stockCache.start(getAccessToken);
+    // Once the stock cache is ready, warm the item-fields (ItemExtraField) cache
+    // for the visible items, and refresh changed items on each poll tick — this
+    // piggybacks the same 5-min cadence rather than running a second timer.
+    const getVisibleItems = () => filterVisibleProducts(stockCache.getAll());
+    stockCache.start(getAccessToken, {
+        onReady: () => itemFieldsCache.warm(getAccessToken, getVisibleItems),
+        onPoll: () => itemFieldsCache.refreshChanged(getAccessToken),
+    });
 
     // Start the server
     app.listen(port, () => {
