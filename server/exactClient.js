@@ -66,10 +66,14 @@ async function getContactByEmail(accessToken, email) {
     return response.data.d?.results || [];
 }
 
-async function getAllStockPositions(accessToken, { onPage } = {}) {
+// `sinceTimestamp` drives Exact's incremental sync: rows carry a monotonic
+// `Timestamp` row-version, so `Timestamp gt <n>` returns only rows changed since
+// `n`. Default 1 = everything (the original full-pull behavior, unchanged for
+// existing callers). The stock cache passes its last-seen Timestamp for deltas.
+async function getAllStockPositions(accessToken, { onPage, sinceTimestamp = 1 } = {}) {
     const path = `/api/v1/${DIVISION}/sync/Inventory/StockPositions`;
     const initialParams = {
-        '$filter': 'Timestamp gt 1',
+        '$filter': `Timestamp gt ${sinceTimestamp}`,
         '$select': [
             'ID', 'ItemId', 'ItemCode', 'ItemDescription',
             'FreeStock', 'PlanningIn', 'PlanningOut', 'ProjectedStock', 'Timestamp',

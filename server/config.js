@@ -50,6 +50,11 @@ function parseTrustProxy(raw) {
     return raw; // pass through string values like 'loopback'
 }
 
+// STOCK_SYNC_INTERVAL_MS: how often the background poller pulls StockPosition
+// deltas from Exact. Default 5 minutes — stock changes infrequently, so this is
+// plenty fresh. Lower it only for local testing.
+const stockSyncIntervalMs = Number(process.env.STOCK_SYNC_INTERVAL_MS) || 5 * 60 * 1000;
+
 module.exports = {
     nodeEnv: process.env.NODE_ENV || 'development',
     port: Number(process.env.PORT) || 5000,
@@ -64,4 +69,5 @@ module.exports = {
     allowedOriginsSource,
     exportAllowedEmails,
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+    stockSyncIntervalMs,
 };

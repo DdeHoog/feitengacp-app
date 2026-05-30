@@ -1,6 +1,7 @@
     const config = require('./config'); // Loads + validates .env on require
     const logger = require('./logger');
     const exactClient = require('./exactClient');
+    const stockCache = require('./stockCache');
 
     const express = require('express');
     const cors = require('cors');
@@ -390,20 +391,33 @@
             }
         }));
 
-        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact');
+        // Stock cache state — confirm the poller is warm without grepping logs.
+        app.get('/api/debug/cache', authenticateToken, (req, res) => {
+            res.json(stockCache.getStatus());
+        });
+
+        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact, /api/debug/cache');
     }
 
     // === Product page API, sync from stockPosition with extra fields for product details ===
     app.get('/api/products', authenticateToken, asyncHandler(async (req, res) => {
-           const accessToken = await getAccessToken();
-            if (!accessToken) {
-                return res.status(401).json({ error: 'Unauthorized - No valid access token' });
+            // Serve from the warm cache (ms response, and still served even if
+            // Exact is briefly unreachable). On a cold start — before the boot
+            // sync has filled the cache — fall back to a one-off live pull so
+            // the very first request still works; every request after reads cache.
+            let rawProducts;
+            if (stockCache.isReady()) {
+                rawProducts = stockCache.getAll();
+            } else {
+                const accessToken = await getAccessToken();
+                if (!accessToken) {
+                    return res.status(401).json({ error: 'Unauthorized - No valid access token' });
+                }
+                logger.info('stockCache not ready; serving /api/products from a one-off live pull');
+                rawProducts = await exactClient.getAllStockPositions(accessToken, {
+                    onPage: (currentTotal) => logger.debug({ currentTotal }, 'Fetching next stock page'),
+                });
             }
-
-            logger.info('Starting paginated stock pull from Exact');
-            const rawProducts = await exactClient.getAllStockPositions(accessToken, {
-                onPage: (currentTotal) => logger.debug({ currentTotal }, 'Fetching next stock page'),
-            });
 
             // To be filtered itemCodes
             const excludePrefixes = [  
@@ -502,6 +516,11 @@
             : (err.publicMessage || err.message || 'Request failed');
         res.status(status).json({ error: clientMessage, message: clientMessage });
     });
+
+    // Warm the product cache and start the delta poller. Not awaited: the first
+    // /api/products request before the cache is ready falls back to a one-off
+    // live pull (see the route), and every request after reads the warm cache.
+    stockCache.start(getAccessToken);
 
     // Start the server
     app.listen(port, () => {
