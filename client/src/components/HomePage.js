@@ -26,6 +26,9 @@ function HomePage() {
   const { authToken, login } = useAuth();
   const location = useLocation();
   const [notification, setNotification] = useState(null);
+  // Shown when a login takes unusually long — typically the server is in its
+  // cold-start warm-up just after a restart and is retrying behind a 429.
+  const [slowLogin, setSlowLogin] = useState(false);
 
   // display logout or session expiration messages
   useEffect(() => {
@@ -38,8 +41,12 @@ function HomePage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setNotification(null); 
+    setNotification(null);
+    setSlowLogin(false);
     setIsLoading(true);
+    // If the request hasn't returned in a few seconds, surface a reassuring
+    // notice (the server is likely warming up and retrying behind a 429).
+    const slowTimer = setTimeout(() => setSlowLogin(true), 4000);
 
     try {
         const result = await login(email, password);
@@ -50,6 +57,8 @@ function HomePage() {
         console.error("Login error (network or unexpected):", err);
         setError('An unexpected error occurred during login.');
       } finally {
+          clearTimeout(slowTimer);
+          setSlowLogin(false);
           setIsLoading(false);
       }
   };
@@ -79,6 +88,11 @@ function HomePage() {
               {error && (
                   <div className="mb-4 p-3 rounded-md bg-red-100 text-red-800 border border-red-300 text-center">
                       {error}
+                  </div>
+              )}
+              {isLoading && slowLogin && (
+                  <div className="mb-4 p-3 rounded-md bg-blue-50 text-blue-800 border border-blue-200 text-center">
+                      The server may be starting up — your first login can take a few extra seconds. Please wait…
                   </div>
               )}
               <h2 className="text-xl xl:text-2xl font-semibold text-gray-800 mb-4">Login</h2>

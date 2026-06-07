@@ -79,14 +79,18 @@ async function refreshTokens(refreshToken) {
 
 // === Business endpoints ===
 
+// Routed through getWithRetry so a login during the cold-start warm burst (the
+// per-item ItemExtraField fan-out can exhaust Exact's per-minute quota for ~30s
+// after a restart) retries on 429 instead of failing. Bounded to 3 retries to
+// cap worst-case login latency; honors Retry-After.
 async function getContactByEmail(accessToken, email) {
-    const response = await client.get(`/api/v1/${DIVISION}/crm/Contacts`, {
+    const response = await getWithRetry(`/api/v1/${DIVISION}/crm/Contacts`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         params: {
             '$filter': `Email eq '${email}' and SocialSecurityNumber ne null`,
             '$select': 'ID,SocialSecurityNumber,Email,FullName',
         },
-    });
+    }, { retries: 3 });
     return response.data.d?.results || [];
 }
 
