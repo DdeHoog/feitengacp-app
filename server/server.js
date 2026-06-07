@@ -134,7 +134,20 @@
         }
     }
 
+    // In-memory copy of the current tokens, loaded from disk on first use and
+    // kept in sync by saveTokens(). A single in-process source of truth is what
+    // makes the single-flight refresh below correct.
+    let cachedTokens = null;
+
+    // Guards concurrent refreshes. Exact rotates the refresh token on every use
+    // and invalidates the previous one, so two refreshes racing would make the
+    // second present an already-consumed token ("Old refresh token used") and
+    // could persist a dead token. While a refresh is in flight, all callers
+    // await this same promise instead of each starting their own.
+    let refreshPromise = null;
+
     async function saveTokens(tokens) {
+        cachedTokens = tokens; // keep memory in sync (incl. the OAuth callback path)
         try {
             await fs.mkdir(path.dirname(TOKEN_PATH), { recursive: true });
             await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), 'utf-8');
@@ -154,29 +167,47 @@
         }
     }
 
-    async function refreshAccessToken(refreshToken) {
-        const newTokens = await exactClient.refreshTokens(refreshToken);
-        await saveTokens(newTokens);
-        return newTokens;
+    // Performs the refresh exactly once for any number of concurrent callers.
+    // On success the rotated tokens are persisted and cached; on failure the
+    // Exact error is logged and re-thrown to every awaiting caller.
+    async function refreshTokensOnce(refreshToken) {
+        if (!refreshPromise) {
+            refreshPromise = (async () => {
+                logger.info('Access token expired or near expiry; refreshing');
+                try {
+                    const newTokens = await exactClient.refreshTokens(refreshToken);
+                    await saveTokens(newTokens);
+                    return newTokens;
+                } catch (err) {
+                    logger.error(
+                        { err: err.response?.data || err.message },
+                        'Token refresh failed — re-authorize via /oauth/authorize if this persists',
+                    );
+                    throw err;
+                }
+            })().finally(() => { refreshPromise = null; });
+        }
+        return refreshPromise;
     }
 
-    // This function will be called when the access token is expired or about to expire
+    // Returns a valid Exact access token, refreshing if it has expired or is
+    // within 1 min of expiry. Concurrent callers share one in-flight refresh.
     async function getAccessToken() {
-        let tokens = await readTokens();
-        if (!tokens) {
+        if (!cachedTokens) {
+            cachedTokens = await readTokens();
+        }
+        if (!cachedTokens) {
             logger.error('No tokens found. Please authenticate via /oauth/authorize first.');
-            return null; 
+            return null;
         }
 
-        const now = Date.now();
-
-        // Refresh token if it has expired or about to expire in 1 min
-        if (!tokens.expires_at || tokens.expires_at < now + 60 * 1000){
-            logger.info('Access token expired or near expiry; refreshing');
-            tokens = await refreshAccessToken(tokens.refresh_token);
+        // Refresh if expired or about to expire within 1 min.
+        if (!cachedTokens.expires_at || cachedTokens.expires_at < Date.now() + 60 * 1000) {
+            const tokens = await refreshTokensOnce(cachedTokens.refresh_token);
+            return tokens.access_token;
         }
 
-        return tokens.access_token; // Return the valid access token
+        return cachedTokens.access_token; // still valid
     }
 
     //  === Middleware ===
