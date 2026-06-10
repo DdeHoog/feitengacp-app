@@ -133,16 +133,16 @@ function ProductList() {
     }
 
     const headers = [
-        { label: 'Article nr.', key: 'Item Code' },
+        { label: 'Article Nr.', key: 'Item Code' },
         { label: 'Description', key: 'Item Description' },
-        { label: 'Type of skin', key: 'Type of Skin' },
+        { label: 'Type of SKIN / CORE', key: 'Type of Skin' },
         { label: 'Thickness', key: 'Thickness' },
         { label: 'Length', key: 'Length' },
         { label: 'Width', key: 'Width' },
         { label: 'Color', key: 'Color' },
-        { label: 'Free stock', key: 'Free Stock' },
-        { label: 'Planned in', key: 'Planned In' },
-        { label: 'Expected stock', key: 'Expected Stock' },
+        { label: 'Free Stock Now', key: 'Free Stock' },
+        { label: 'Planned In', key: 'Planned In' },
+        { label: 'Expected Free Stock', key: 'Expected Stock' },
         { label: 'Pallet QTY', key: 'Pallet QTY' },
     ];
 
