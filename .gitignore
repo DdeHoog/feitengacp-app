@@ -22,3 +22,4 @@ yarn-error.log*
 # Misc
 .DS_Store
 hourLogs.txt
+WORKLOG.md

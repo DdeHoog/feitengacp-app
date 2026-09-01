@@ -3,6 +3,7 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
+    const { upsertCustomerProfile } = require('./db'); // requiring opens SQLite + runs migrations at boot
 
     const express = require('express');
     const cors = require('cors');
@@ -37,6 +38,28 @@
 
     // Load once on startup (non-blocking)
     loadPalletQtyMap();
+
+    // Refresh the cached customer_profile from Exact after a successful login.
+    // Fire-and-forget from the login handler: the COALESCE upsert keeps prior data
+    // if the account/address fetch 429s, and last_login always advances for the
+    // admin view. Contact fields are stored even when the account fetch fails.
+    async function refreshCustomerProfileAtLogin(accessToken, contact) {
+        const base = {
+            exact_contact_id: contact.ID,
+            account_id: contact.Account || null,
+            company_name: contact.AccountName || null,
+            email: contact.Email || null,
+            full_name: contact.FullName || null,
+            last_login: Date.now(),
+        };
+        let accountData = {};
+        try {
+            if (contact.Account) accountData = await exactClient.getAccountProfile(accessToken, contact.Account);
+        } catch (err) {
+            logger.warn({ contactId: contact.ID, err: err.message }, 'customer_profile: account fetch failed; storing contact fields only');
+        }
+        upsertCustomerProfile({ ...base, ...accountData });
+    }
 
 
     const app = express();
@@ -474,6 +497,10 @@
 
                 await logSuccessfulLogin(email);
 
+                // Refresh the cached profile in the background — never blocks/fails login.
+                refreshCustomerProfileAtLogin(accessToken, matchedContact)
+                    .catch((err) => logger.warn({ email, err: err.message }, 'customer_profile refresh failed'));
+
                 logger.info({ email }, 'Login successful; JWT issued');
                 return res.json({ message: 'Login successful.', token: token });
             }
@@ -647,8 +674,10 @@
     // piggybacks the same 5-min cadence rather than running a second timer.
     const getVisibleItems = () => filterVisibleProducts(stockCache.getAll());
     stockCache.start(getAccessToken, {
-        onReady: () => itemFieldsCache.warm(getAccessToken, getVisibleItems),
-        onPoll: () => itemFieldsCache.refreshChanged(getAccessToken),
+        // The per-item warm burst can 429-starve interactive logins on cold start;
+        // gated so dev can turn it off. Phase-1/debug-only, so prod-unset = on.
+        onReady: () => { if (config.warmItemFields) itemFieldsCache.warm(getAccessToken, getVisibleItems); },
+        onPoll: () => { if (config.warmItemFields) itemFieldsCache.refreshChanged(getAccessToken); },
     });
 
     // Start the server

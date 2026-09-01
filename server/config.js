@@ -65,9 +65,16 @@ module.exports = {
     tokenPath: process.env.TOKEN_PATH
         ? path.resolve(process.env.TOKEN_PATH)
         : path.join(__dirname, 'tokens.json'),
+    // SQLite path; per-machine, so dev and prod DBs stay separate. Default: storage/app.db
+    dbPath: process.env.DB_PATH
+        ? path.resolve(process.env.DB_PATH)
+        : path.join(__dirname, 'storage', 'app.db'),
     allowedOrigins,
     allowedOriginsSource,
     exportAllowedEmails,
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     stockSyncIntervalMs,
+    // itemFieldsCache boot warm is a per-item Exact burst that can 429-starve login
+    // on cold start; disable in dev with WARM_ITEM_FIELDS=false. Unset = on (prod).
+    warmItemFields: process.env.WARM_ITEM_FIELDS !== 'false',
 };

@@ -88,7 +88,7 @@ async function getContactByEmail(accessToken, email) {
         headers: { Authorization: `Bearer ${accessToken}` },
         params: {
             '$filter': `Email eq '${email}' and SocialSecurityNumber ne null`,
-            '$select': 'ID,SocialSecurityNumber,Email,FullName',
+            '$select': 'ID,SocialSecurityNumber,Email,FullName,Account,AccountName',
         },
     }, { retries: 3 });
     return response.data.d?.results || [];
@@ -166,6 +166,68 @@ async function getChangedItems(accessToken, sinceTimestamp = 1) {
     return all;
 }
 
+// === Account profile (company, debtor number, delivery address) ===
+// Fetched at login, cached in customer_profile. Field mapping + Type semantics in
+// DESIGN-CONTEXT.md. Everything from Exact is space-padded, so trim.
+
+const trim = (v) => (v == null ? '' : String(v).trim());
+
+async function getAccountById(accessToken, accountId) {
+    const response = await getWithRetry(`/api/v1/${DIVISION}/crm/Accounts`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+            '$filter': `ID eq guid'${accountId}'`,
+            '$select': 'ID,Code,Name,AddressLine1,AddressLine2,AddressLine3,Postcode,City,State,Country,CountryName',
+        },
+    });
+    return response.data.d?.results?.[0] || null;
+}
+
+async function getAccountAddresses(accessToken, accountId) {
+    const response = await getWithRetry(`/api/v1/${DIVISION}/crm/Addresses`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+            '$filter': `Account eq guid'${accountId}'`,
+            '$select': 'ID,Type,Main,AddressLine1,AddressLine2,AddressLine3,Postcode,City,State,Country,CountryName',
+        },
+    });
+    return response.data.d?.results || [];
+}
+
+// Type 4 = Delivery (prefer Main); fall back to Visit (1), then anything present.
+function pickDeliveryAddress(addresses) {
+    const ofType = (t) => addresses.filter((a) => a.Type === t);
+    const pool = ofType(4).length ? ofType(4) : ofType(1).length ? ofType(1) : addresses;
+    return pool.find((a) => a.Main) || pool[0] || null;
+}
+
+// Multi-line block for the order email. Account records share these field names,
+// so this doubles as the account-address fallback.
+function formatAddress(a) {
+    if (!a) return null;
+    const parts = [trim(a.AddressLine1), trim(a.AddressLine2), trim(a.AddressLine3)].filter(Boolean);
+    const cityLine = [trim(a.Postcode), trim(a.City)].filter(Boolean).join(' ');
+    if (cityLine) parts.push(cityLine);
+    const country = trim(a.CountryName) || trim(a.Country);
+    if (country) parts.push(country);
+    return parts.length ? parts.join('\n') : null;
+}
+
+// Company name + debtor number + delivery address for a contact's Account. Two
+// GETs in parallel; returns nulls for missing pieces rather than throwing, so a
+// partial Exact result still caches something useful.
+async function getAccountProfile(accessToken, accountId) {
+    const [account, addresses] = await Promise.all([
+        getAccountById(accessToken, accountId),
+        getAccountAddresses(accessToken, accountId),
+    ]);
+    return {
+        company_name: trim(account?.Name) || null,
+        debtor_number: trim(account?.Code) || null,
+        delivery_address: formatAddress(pickDeliveryAddress(addresses)) || formatAddress(account),
+    };
+}
+
 // Generic GET for the dev-only debug proxy. Accepts any Exact API path so the
 // caller can probe endpoints during investigation. Requires path to start with
 // '/api/' so an attacker who somehow bypasses the route gates can't redirect
@@ -188,6 +250,11 @@ module.exports = {
     exchangeAuthCode,
     refreshTokens,
     getContactByEmail,
+    getAccountById,
+    getAccountAddresses,
+    getAccountProfile,
+    pickDeliveryAddress, // exported for unit tests
+    formatAddress,       // exported for unit tests
     getAllStockPositions,
     getItemExtraFields,
     getChangedItems,
