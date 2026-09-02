@@ -37,6 +37,13 @@ const exportAllowedEmails = (process.env.EXPORT_ALLOWED_EMAILS || '')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
+// ADMIN_EMAILS: who may access the /admin area. Kept separate from
+// EXPORT_ALLOWED_EMAILS — different privilege that may diverge — same parsing.
+const adminEmails = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
 // TRUST_PROXY: set when the server sits behind a reverse proxy (nginx, Caddy,
 // Cloudflare Tunnel, etc.) so Express reads the real client IP from
 // X-Forwarded-For. Accepts: number of hops ('1'), 'true', 'loopback',
@@ -72,6 +79,7 @@ module.exports = {
     allowedOrigins,
     allowedOriginsSource,
     exportAllowedEmails,
+    adminEmails,
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     stockSyncIntervalMs,
     // itemFieldsCache boot warm is a per-item Exact burst that can 429-starve login

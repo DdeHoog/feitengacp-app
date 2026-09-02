@@ -3,7 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../authContext';
 
 function Layout() {
-  const { authToken, logout } = useAuth();
+  const { authToken, logout, isAdmin } = useAuth();
 
   const navLinkStyles = ({ isActive }) => ({
     fontWeight: isActive ? 'bold' : 'normal',
@@ -54,6 +54,9 @@ function Layout() {
                 <li><NavLink to="/" style={navLinkStyles}>Home</NavLink></li>
                 <li><NavLink to="/stock" style={navLinkStyles}>Stock</NavLink></li>
                 <li><NavLink to="/contact" style={navLinkStyles}>Download</NavLink></li>
+                {isAdmin && (
+                  <li><NavLink to="/admin" style={navLinkStyles}>Admin</NavLink></li>
+                )}
                 <li>
                   <button 
                     onClick={logout} 

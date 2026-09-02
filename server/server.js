@@ -266,9 +266,19 @@
                 return res.status(403).json({ error: 'Invalid or expired token.' });
             }
             req.user = user; // Attach user info to request object
-            next(); 
+            next();
         })
     };
+
+    // Gate for /api/admin/* — runs after authenticateToken, so req.user is set.
+    // Server-side enforcement (the client also hides the UI, but never trust that).
+    function requireAdmin(req, res, next) {
+        if (!req.user?.isAdmin) {
+            logger.warn({ email: req.user?.email, url: req.originalUrl }, 'Non-admin blocked from admin route');
+            return res.status(403).json({ error: 'Admin access required.' });
+        }
+        next();
+    }
 
     //===PARSER===
     function parseProductDescription(description, itemCode) {
@@ -484,14 +494,15 @@
             const matchedContact = exactContacts[0]; // The filter should only return one.
 
             if (matchedContact.SocialSecurityNumber === password) {
-                const canExport = config.exportAllowedEmails.includes(
-                    (matchedContact.Email || '').toLowerCase()
-                );
+                const contactEmail = (matchedContact.Email || '').toLowerCase();
+                const canExport = config.exportAllowedEmails.includes(contactEmail);
+                const isAdmin = config.adminEmails.includes(contactEmail);
                 const user = {
                     id: matchedContact.ID,
                     email: matchedContact.Email,
                     name: matchedContact.FullName,
                     canExport,
+                    isAdmin,
                 };
                 const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' });
 
@@ -590,6 +601,12 @@
     }
 
     // === Product page API, sync from stockPosition with extra fields for product details ===
+    // === Admin routes (gated: valid JWT + isAdmin) ===
+    // Batch 3 establishes the gate; the data routes (users/orders/forecasts) land in Batch 6.
+    app.get('/api/admin/whoami', authenticateToken, requireAdmin, (req, res) => {
+        res.json({ email: req.user.email, name: req.user.name, isAdmin: true });
+    });
+
     app.get('/api/products', authenticateToken, asyncHandler(async (req, res) => {
             // Serve from the warm cache (ms response, and still served even if
             // Exact is briefly unreachable). On a cold start — before the boot

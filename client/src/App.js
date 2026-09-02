@@ -8,6 +8,7 @@ import Layout from './components/Layout';
 import HomePage from './components/HomePage';
 import ProductList from './components/ProductList';
 import DownloadPage from './components/DownloadPage';
+import AdminPage from './components/AdminPage';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
               <Route index element={<HomePage />} />
               <Route path="stock" element={<ProductList />} />
               <Route path="contact" element={<DownloadPage />} />
+              <Route path="admin" element={<AdminPage />} />
             </Route>
           </Routes>
         </AuthProvider>

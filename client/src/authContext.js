@@ -87,6 +87,7 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated: !!authToken,
         userEmail: claims?.email || null,
         canExport: !!claims?.canExport,
+        isAdmin: !!claims?.isAdmin,
     };
 
     return (
