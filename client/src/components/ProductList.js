@@ -1,10 +1,36 @@
 import React, { useEffect, useState, useRef } from 'react';
 import useProducts from '../hooks/useProducts';
 import { useAuth } from '../authContext';
+import { useCart } from '../cartContext';
+
+// Per-row order control: quantity + add-to-cart. Local qty state per row so
+// typing in one row doesn't re-render the whole (large) table.
+function OrderCell({ product, onAdd }) {
+    const [qty, setQty] = useState(1);
+    return (
+        <div className="flex items-center gap-1">
+            <input
+                type="number"
+                min="1"
+                value={qty}
+                onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="w-16 border border-gray-300 rounded px-1 py-0.5 text-sm"
+                aria-label={`Quantity for ${product['Item Code']}`}
+            />
+            <button
+                onClick={() => onAdd(qty)}
+                className="px-2 py-1 rounded bg-[#003F84] text-white text-xs font-semibold hover:bg-[#00457F] transition-colors"
+            >
+                Add
+            </button>
+        </div>
+    );
+}
 
 function ProductList() {
     const { products, loading, error } = useProducts();
     const { canExport } = useAuth();
+    const { addItem } = useCart();
     const [filters, setFilters] = useState({});
     const [activeDropdown, setActiveDropdown] = useState(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -221,6 +247,7 @@ function ProductList() {
                                         </th>
                                     );
                                 })}
+                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">Order</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -237,6 +264,12 @@ function ProductList() {
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-orange-700 font-semibold">{formatStock(product["Planned In"])}</td>
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-green-700 font-semibold">{formatStock(product["Expected Stock"])}</td>
                                     <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Pallet QTY"] == null ? "—" : Number(product["Pallet QTY"])}</td>
+                                    <td className="px-5 py-3 whitespace-nowrap">
+                                        <OrderCell
+                                            product={product}
+                                            onAdd={(qty) => addItem({ article_code: product["Item Code"], description: product["Item Description"] }, qty)}
+                                        />
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

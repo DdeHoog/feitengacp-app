@@ -3,7 +3,7 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
-    const { upsertCustomerProfile } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders } = require('./db'); // requiring opens SQLite + runs migrations at boot
 
     const express = require('express');
     const cors = require('cors');
@@ -605,6 +605,81 @@
     // Batch 3 establishes the gate; the data routes (users/orders/forecasts) land in Batch 6.
     app.get('/api/admin/whoami', authenticateToken, requireAdmin, (req, res) => {
         res.json({ email: req.user.email, name: req.user.name, isAdmin: true });
+    });
+
+    // All submitted orders across customers (for the admin overview + CSV export).
+    app.get('/api/admin/orders', authenticateToken, requireAdmin, (req, res) => {
+        res.json(getAllOrders());
+    });
+
+    // === Ordering (Batch 4a: persist; the email send is Batch 4b) ===
+    // Prefill data for the order form — the cached customer profile.
+    app.get('/api/profile', authenticateToken, (req, res) => {
+        const p = getCustomerProfile(req.user.id);
+        if (!p) return res.status(404).json({ error: 'Profile not found — try logging in again.' });
+        res.json({
+            company_name: p.company_name,
+            debtor_number: p.debtor_number,
+            delivery_address: p.delivery_address,
+            email: p.email,
+            full_name: p.full_name,
+        });
+    });
+
+    // Submit an order → validate, snapshot the profile, persist with a PORTAL ref.
+    app.post('/api/orders', authenticateToken, asyncHandler(async (req, res) => {
+        const { customer_reference, desired_ship_date, orderer_name, phone, delivery_address, lines } = req.body;
+
+        if (!Array.isArray(lines) || lines.length === 0) {
+            return res.status(400).json({ error: 'Add at least one product to the order.' });
+        }
+        const cleanLines = [];
+        for (const l of lines) {
+            const code = String(l?.article_code || '').trim();
+            const qty = Number(l?.quantity);
+            if (!code) return res.status(400).json({ error: 'Each line needs an article code.' });
+            if (!Number.isInteger(qty) || qty <= 0) return res.status(400).json({ error: `Invalid quantity for ${code}.` });
+            cleanLines.push({ article_code: code, description: String(l?.description || '').trim() || null, quantity: qty });
+        }
+
+        // Required customer-entered fields (Ad's requirement).
+        const ordererName = String(orderer_name || '').trim();
+        const phoneNum = String(phone || '').trim();
+        const deliveryAddr = String(delivery_address || '').trim();
+        const shipDate = String(desired_ship_date || '').trim();
+        if (!ordererName) return res.status(400).json({ error: 'Your name is required.' });
+        if (!phoneNum) return res.status(400).json({ error: 'A phone number is required.' });
+        if (!deliveryAddr) return res.status(400).json({ error: 'A delivery address is required.' });
+        if (!shipDate) return res.status(400).json({ error: 'Desired shipping date is required.' });
+
+        const ref = String(customer_reference || '').trim();
+        if (ref && (ref.length > 20 || !/^[a-zA-Z0-9]+$/.test(ref))) {
+            return res.status(400).json({ error: 'Reference must be alphanumeric, max 20 characters.' });
+        }
+
+        // Snapshot the details as-ordered (immutable). Company/debtor come from Exact
+        // (identity); delivery address is what the customer confirmed/edited.
+        const p = getCustomerProfile(req.user.id);
+        const { id, our_reference } = createOrder({
+            customer_reference: ref || null,
+            exact_contact_id: req.user.id,
+            company_name: p?.company_name ?? null,
+            debtor_number: p?.debtor_number ?? null,
+            delivery_address: deliveryAddr,
+            desired_ship_date: shipDate,
+            orderer_name: ordererName,
+            orderer_email: req.user.email,
+            phone: phoneNum,
+        }, cleanLines);
+
+        logger.info({ our_reference, contactId: req.user.id, lines: cleanLines.length }, 'Order submitted');
+        // Batch 4b: send the order email to sales@ here, then update email_status.
+        res.status(201).json({ id, our_reference });
+    }));
+
+    // The logged-in customer's own order history (with lines).
+    app.get('/api/orders', authenticateToken, (req, res) => {
+        res.json(getOrdersForContact(req.user.id));
     });
 
     app.get('/api/products', authenticateToken, asyncHandler(async (req, res) => {

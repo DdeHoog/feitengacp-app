@@ -72,6 +72,14 @@ const MIGRATIONS = [
             CREATE TABLE sequences (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
         `);
     },
+    // v2 — orderer contact details on orders (Ad: name / email / phone, all required)
+    (d) => {
+        d.exec(`
+            ALTER TABLE orders ADD COLUMN orderer_name  TEXT;
+            ALTER TABLE orders ADD COLUMN orderer_email TEXT;
+            ALTER TABLE orders ADD COLUMN phone         TEXT;
+        `);
+    },
 ];
 
 function migrate() {
@@ -134,4 +142,41 @@ function getCustomerProfile(contactId) {
     return getProfileStmt.get(contactId) || null;
 }
 
-module.exports = { db, nextSequence, upsertCustomerProfile, getCustomerProfile };
+// --- Orders ---
+const insertOrderStmt = db.prepare(`
+    INSERT INTO orders
+        (our_reference, customer_reference, exact_contact_id, company_name, debtor_number, delivery_address, desired_ship_date, orderer_name, orderer_email, phone, email_status, created_at)
+    VALUES
+        (@our_reference, @customer_reference, @exact_contact_id, @company_name, @debtor_number, @delivery_address, @desired_ship_date, @orderer_name, @orderer_email, @phone, 'pending', @created_at)
+`);
+const insertLineStmt = db.prepare(`
+    INSERT INTO order_lines (order_id, article_code, description, quantity)
+    VALUES (@order_id, @article_code, @description, @quantity)
+`);
+
+// Create an order + its lines atomically, assigning the next PORTAL reference.
+// `order` holds the snapshot fields; `lines` is [{article_code, description, quantity}].
+// (nextSequence is itself a transaction — better-sqlite3 nests it via a savepoint.)
+const createOrder = db.transaction((order, lines) => {
+    const our_reference = 'PORTAL' + String(nextSequence('portal_order')).padStart(4, '0');
+    const info = insertOrderStmt.run({ ...order, our_reference, created_at: Date.now() });
+    for (const l of lines) {
+        insertLineStmt.run({ order_id: info.lastInsertRowid, article_code: l.article_code, description: l.description ?? null, quantity: l.quantity });
+    }
+    return { id: Number(info.lastInsertRowid), our_reference };
+});
+
+const getOrdersStmt = db.prepare('SELECT * FROM orders WHERE exact_contact_id = ? ORDER BY created_at DESC, id DESC');
+const getLinesStmt = db.prepare('SELECT article_code, description, quantity FROM order_lines WHERE order_id = ?');
+function getOrdersForContact(contactId) {
+    return getOrdersStmt.all(contactId).map((o) => ({ ...o, lines: getLinesStmt.all(o.id) }));
+}
+
+// All orders across customers (admin view). Fine to return all at this volume;
+// paginate later if needed.
+const getAllOrdersStmt = db.prepare('SELECT * FROM orders ORDER BY created_at DESC, id DESC');
+function getAllOrders() {
+    return getAllOrdersStmt.all().map((o) => ({ ...o, lines: getLinesStmt.all(o.id) }));
+}
+
+module.exports = { db, nextSequence, upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders };

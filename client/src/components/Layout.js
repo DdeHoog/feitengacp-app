@@ -1,9 +1,11 @@
 import React from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../authContext';
+import { useCart } from '../cartContext';
 
 function Layout() {
   const { authToken, logout, isAdmin } = useAuth();
+  const { count } = useCart();
 
   const navLinkStyles = ({ isActive }) => ({
     fontWeight: isActive ? 'bold' : 'normal',
@@ -46,22 +48,39 @@ function Layout() {
         {/* Header */}
         <header className={`bg-white shadow-md p-4 flex justify-between items-center ${leftPadding} ${rightPadding}`}>
           <div className="text-2xl font-bold text-indigo-700">
-            <img src="/logoBlue.png" alt="Company Logo" className="h-9 inline-block mr-2" /> {/*Logo */}
+            <NavLink to="/" aria-label="Home">
+              <img src="/logoBlue.png" alt="Feiteng — Home" className="h-9 inline-block mr-2" /> {/* Logo doubles as Home */}
+            </NavLink>
           </div>
           { authToken && (
             <nav>
-              <ul className="flex space-x-8 text-lg">
-                <li><NavLink to="/" style={navLinkStyles}>Home</NavLink></li>
+              <ul className="flex items-center space-x-8 text-lg">
+                <li>
+                  <NavLink to="/cart" style={navLinkStyles} className="relative inline-flex items-center top-[3px]" aria-label={`Cart${count > 0 ? `, ${count} item${count !== 1 ? 's' : ''}` : ''}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.35 2.7A1 1 0 007.5 17H17M17 17a2 2 0 100 4 2 2 0 000-4zm-9 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    {count > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-semibold rounded-full min-w-[1.15rem] h-[1.15rem] px-1 flex items-center justify-center">
+                        {count}
+                      </span>
+                    )}
+                  </NavLink>
+                </li>
                 <li><NavLink to="/stock" style={navLinkStyles}>Stock</NavLink></li>
+                <li><NavLink to="/orders" style={navLinkStyles}>My Orders</NavLink></li>
                 <li><NavLink to="/contact" style={navLinkStyles}>Download</NavLink></li>
                 {isAdmin && (
                   <li><NavLink to="/admin" style={navLinkStyles}>Admin</NavLink></li>
                 )}
                 <li>
-                  <button 
-                    onClick={logout} 
-                    className="font-normal text-gray-700 hover:text-red-600 focus:outline-none transition-colors duration-200"
+                  <button
+                    onClick={logout}
+                    className="inline-flex items-center gap-1 font-normal text-gray-700 hover:text-red-600 focus:outline-none transition-colors duration-200"
                   >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7M13 16v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
                     Logout
                   </button>
                 </li>
