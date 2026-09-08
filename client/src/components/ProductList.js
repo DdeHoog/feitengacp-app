@@ -14,7 +14,7 @@ function OrderCell({ product, onAdd }) {
                 min="1"
                 value={qty}
                 onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-10 border border-gray-300 rounded px-1 py-0.5 text-sm"
+                className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm"
                 aria-label={`Quantity for ${product['Item Code']}`}
             />
             <button

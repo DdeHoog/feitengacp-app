@@ -696,6 +696,11 @@
                 setOrderEmailStatus(id, 'failed');
             });
 
+        // Confirmation copy to the customer — best-effort, tracked separately so it
+        // can't flip the order's email_status (that reflects the sales@ notification).
+        mailer.sendCustomerCopy(orderForEmail, cleanLines)
+            .catch((err) => logger.warn({ our_reference, err: err.response?.data?.error?.message || err.message }, 'Customer copy email failed'));
+
         res.status(201).json({ id, our_reference });
     }));
 

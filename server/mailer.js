@@ -31,7 +31,7 @@ async function getToken() {
 
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
-function renderHtml(order, lines) {
+function renderHtml(order, lines, { heading, intro } = {}) {
     const rows = lines.map((l) => `
         <tr>
             <td style="padding:4px 10px;border-bottom:1px solid #eee">${esc(l.article_code)}</td>
@@ -41,7 +41,8 @@ function renderHtml(order, lines) {
     const field = (label, value) => `<p style="margin:2px 0"><strong>${label}:</strong> ${esc(value) || '—'}</p>`;
     return `
         <div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-            <h2 style="color:#004EA2">Nieuwe order ${esc(order.our_reference)}</h2>
+            <h2 style="color:#004EA2">${esc(heading || `Nieuwe order ${order.our_reference}`)}</h2>
+            ${intro ? `<p style="margin:0 0 10px">${esc(intro)}</p>` : ''}
             ${field('Bedrijf', order.company_name)}
             ${field('Debiteurnr', order.debtor_number)}
             ${field('Besteller', order.orderer_name)}
@@ -65,28 +66,53 @@ function renderHtml(order, lines) {
         </div>`;
 }
 
-// Send the order notification to sales@. Throws on failure so the caller records
+async function send(to, subject, html) {
+    const token = await getToken();
+    await axios.post(
+        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailFrom)}/sendMail`,
+        {
+            message: {
+                subject,
+                body: { contentType: 'HTML', content: html },
+                toRecipients: to.map((address) => ({ emailAddress: { address } })),
+            },
+            saveToSentItems: true,
+        },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 20_000 }
+    );
+}
+
+// Order notification to sales@. Throws on failure so the caller records
 // email_status='failed'. Returns false (no throw) when Graph isn't configured.
 async function sendOrderEmail(order, lines) {
     if (!enabled) {
         logger.warn({ our_reference: order.our_reference }, 'Graph mail not configured — skipping order email');
         return false;
     }
-    const token = await getToken();
-    const payload = {
-        message: {
-            subject: `Nieuwe order ${order.our_reference} — ${order.company_name || ''}`.trim(),
-            body: { contentType: 'HTML', content: renderHtml(order, lines) },
-            toRecipients: [{ emailAddress: { address: mailTo } }],
-        },
-        saveToSentItems: true,
-    };
-    await axios.post(
-        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailFrom)}/sendMail`,
-        payload,
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 20_000 }
+    // MAIL_TO may hold several comma-separated addresses.
+    const recipients = mailTo.split(',').map((s) => s.trim()).filter(Boolean);
+    await send(
+        recipients,
+        `Nieuwe order ${order.our_reference} — ${order.company_name || ''}`.trim(),
+        renderHtml(order, lines)
     );
     return true;
 }
 
-module.exports = { sendOrderEmail, enabled };
+// Confirmation copy to the customer who placed the order. Sent separately (not CC)
+// so it reads as a confirmation rather than an internal notification. Best-effort:
+// its failure is logged but doesn't affect the order's email_status.
+async function sendCustomerCopy(order, lines) {
+    if (!enabled || !order.orderer_email) return false;
+    await send(
+        [order.orderer_email],
+        `Bevestiging van uw order ${order.our_reference}`,
+        renderHtml(order, lines, {
+            heading: `Bevestiging van uw order ${order.our_reference}`,
+            intro: 'Bedankt voor uw bestelling. Hieronder vindt u een overzicht van uw order. Wij nemen zo spoedig mogelijk contact met u op.',
+        })
+    );
+    return true;
+}
+
+module.exports = { sendOrderEmail, sendCustomerCopy, enabled };
