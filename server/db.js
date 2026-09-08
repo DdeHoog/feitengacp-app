@@ -179,4 +179,9 @@ function getAllOrders() {
     return getAllOrdersStmt.all().map((o) => ({ ...o, lines: getLinesStmt.all(o.id) }));
 }
 
-module.exports = { db, nextSequence, upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders };
+const setEmailStatusStmt = db.prepare('UPDATE orders SET email_status = ? WHERE id = ?');
+function setOrderEmailStatus(id, status) {
+    setEmailStatusStmt.run(status, id);
+}
+
+module.exports = { db, nextSequence, upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus };

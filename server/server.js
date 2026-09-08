@@ -3,7 +3,8 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
-    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const mailer = require('./mailer');
 
     const express = require('express');
     const cors = require('cors');
@@ -673,7 +674,28 @@
         }, cleanLines);
 
         logger.info({ our_reference, contactId: req.user.id, lines: cleanLines.length }, 'Order submitted');
-        // Batch 4b: send the order email to sales@ here, then update email_status.
+
+        // Notify sales@ via Graph — background: the order is already saved, so a slow or
+        // failed send never blocks/breaks the response; email_status records the outcome.
+        const orderForEmail = {
+            our_reference,
+            company_name: p?.company_name ?? null,
+            debtor_number: p?.debtor_number ?? null,
+            delivery_address: deliveryAddr,
+            desired_ship_date: shipDate,
+            customer_reference: ref || null,
+            orderer_name: ordererName,
+            orderer_email: req.user.email,
+            phone: phoneNum,
+            created_at: Date.now(),
+        };
+        mailer.sendOrderEmail(orderForEmail, cleanLines)
+            .then((sent) => { if (sent) setOrderEmailStatus(id, 'sent'); })
+            .catch((err) => {
+                logger.error({ our_reference, err: err.response?.data?.error?.message || err.message }, 'Order email failed');
+                setOrderEmailStatus(id, 'failed');
+            });
+
         res.status(201).json({ id, our_reference });
     }));
 

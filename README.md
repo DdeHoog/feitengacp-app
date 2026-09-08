@@ -9,24 +9,21 @@ The combined repo is the canonical source for both **local development** and **p
 
 ---
 
-## Migration progress (RepoMerge branch)
+## Features
 
-| # | Step | Status |
-| - | ---- | ------ |
-| 1 | Rewrite `server/.env.example` with real env vars | ✅ done |
-| 2 | Make `TOKEN_PATH` configurable | ✅ done |
-| 3 | Make CORS allowed origins configurable (`ALLOWED_ORIGINS`) | ✅ done |
-| 4 | Create local `server/.env` (gitignored) | ✅ done |
-| 5 | Create local `client/.env.development` (gitignored) | ✅ done |
-| 6 | Add root `package.json` with `dev` / `build` / `start` | ✅ done |
-| 7 | Gate static-serve + catch-all on `NODE_ENV=production` | ✅ done |
-| 8 | Get `CLIENT_ID` / `CLIENT_SECRET` from a new Exact dev app | ⏳ waiting on client |
-| 9 | Authorize ngrok callback with the client | ⏳ waiting on client |
-| 10 | Express hardening (`helmet`, rate limit, `config.js`, `pino`, `exactClient.js`) | not started |
-| 11 | Incremental sync + product cache | not started |
-| 12 | TanStack Table refactor on `ProductList.js` | not started |
-
-After step 9 the dev environment is self-sufficient — no more dependency on the Render dev backend.
+| Area | Status |
+| ---- | ------ |
+| Login against Exact contacts; JWT session | ✅ live |
+| Live stock table (filters, CSV export for allow-listed users) | ✅ live |
+| Incremental stock sync + in-memory caches | ✅ live |
+| Express hardening (`helmet`, rate limit, `config.js`, `pino`, `exactClient.js`) | ✅ live |
+| SQLite datastore + per-login customer profile cache | ✅ live |
+| Ordering: cart → review → submit, order history + reorder | ✅ live |
+| Order e-mail to `sales@` via Microsoft Graph | ✅ live |
+| Admin area: orders per customer + CSV export | ✅ live |
+| Forecast (per month, up to 12 months ahead) | planned |
+| Admin: customer login status, forecasts per customer | planned |
+| Nightly SQLite backup | planned |
 
 ---
 
@@ -61,7 +58,29 @@ JWT_SECRET=<long random string>
 TOKEN_PATH=./storage/tokens.dev.json
 
 ALLOWED_ORIGINS=http://localhost:3000,https://iritic-yanira-postgenital.ngrok-free.dev
+
+# Skip the per-item ItemExtraField boot warm — that burst otherwise rate-limits
+# (429) your logins for ~90s after every restart. Leave unset in production.
+WARM_ITEM_FIELDS=false
+
+# Who may reach /admin (separate list from EXPORT_ALLOWED_EMAILS).
+ADMIN_EMAILS=you@example.com
+
+# Order e-mail via Microsoft Graph (Entra app with Mail.Send application
+# permission). In dev, point MAIL_TO at yourself so test orders don't reach the
+# client's inbox. Omit these entirely and e-mail is skipped (orders still save).
+GRAPH_TENANT_ID=
+GRAPH_CLIENT_ID=
+GRAPH_CLIENT_SECRET=
+MAIL_FROM=sales@feitengacp.eu
+MAIL_TO=you@example.com
 ```
+
+> `DB_PATH` is optional — SQLite defaults to `server/storage/app.db`. Each machine
+> (dev laptop, VPS) keeps its own database file; they are never shared.
+
+> **macOS:** free port 5000 first — AirPlay Receiver claims it
+> (System Settings → General → AirDrop & Handoff).
 
 #### `client/.env.development`
 
@@ -178,9 +197,16 @@ npm run build               # builds client/build
 pm2 restart <process-name>  # or: pm2 reload all
 ```
 
-Production uses its **own** `server/.env` with `NODE_ENV=production` (and probably no `TOKEN_PATH`, so it falls back to the existing `server/tokens.json`). Don't touch the prod tokens file from your dev machine.
+Production uses its **own** `server/.env` with `NODE_ENV=production` (and no `TOKEN_PATH`, so it falls back to the existing `server/tokens.json`). Don't touch the prod tokens file from your dev machine.
 
 The static-serve block in `server/server.js` is gated on `NODE_ENV=production`, so the same code base behaves correctly in both environments without changes.
+
+Notes:
+
+- **Database migrations run automatically** at boot — watch for `DB migration applied {version: N}` in `pm2 logs`. Never run SQL on the server by hand.
+- Run `npm install` **only** when the pull actually changed `package.json`. It compiles `better-sqlite3` from source (no usable prebuilt for Node 20), which is memory-hungry: `pm2 stop` first, install, then `pm2 start`. A 2 GB swapfile exists because that compile once OOM-froze the box.
+- `better-sqlite3` is pinned to **v12** — v13+ needs Node ≥ 22 and the VPS runs Node 20.
+- A plain `pm2 restart` picks up `server/.env` edits (dotenv reads it at boot).
 
 ---
 
@@ -206,19 +232,34 @@ feitengacp-app/
 │   ├── .env.development      # REACT_APP_API_BASE_URL (gitignored)
 │   ├── package.json
 │   └── src/
-│       ├── App.js
-│       ├── api.js
-│       ├── authContext.js
+│       ├── App.js            # routes
+│       ├── api.js            # axios instance (attaches the JWT)
+│       ├── authContext.js    # session + canExport / isAdmin claims
+│       ├── cartContext.js    # in-progress order (localStorage)
 │       ├── components/
+│       │   ├── Layout.js         # nav (cart badge, admin link)
+│       │   ├── HomePage.js       # login
+│       │   ├── ProductList.js    # stock table + add-to-cart
+│       │   ├── CartPage.js       # order review + submit
+│       │   ├── MyOrdersPage.js   # own order history + reorder
+│       │   ├── AdminPage.js      # admin orders + CSV export
+│       │   └── DownloadPage.js
 │       └── hooks/
 └── server/
     ├── .env                  # actual local env (gitignored)
     ├── .env.example          # template, committed
     ├── package.json
-    ├── server.js
+    ├── server.js             # routes + orchestration
+    ├── config.js             # env validation
+    ├── exactClient.js        # every Exact Online call
+    ├── db.js                 # SQLite: schema, migrations, queries
+    ├── mailer.js             # order e-mail via Microsoft Graph
+    ├── stockCache.js         # in-memory stock cache + poller
+    ├── itemFieldsCache.js    # per-item spec fields cache
     ├── data/
     │   └── pallet_qty.json
-    ├── storage/              # auto-created on first OAuth callback
-    │   └── tokens.dev.json   # gitignored
+    ├── storage/              # gitignored; auto-created
+    │   ├── tokens.dev.json   # dev OAuth tokens
+    │   └── app.db            # SQLite database
     └── tokens.json           # legacy/prod token file (gitignored)
 ```

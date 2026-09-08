@@ -85,4 +85,13 @@ module.exports = {
     // itemFieldsCache boot warm is a per-item Exact burst that can 429-starve login
     // on cold start; disable in dev with WARM_ITEM_FIELDS=false. Unset = on (prod).
     warmItemFields: process.env.WARM_ITEM_FIELDS !== 'false',
+    // Microsoft Graph mail (order notifications). Optional: if unset, email is
+    // skipped and orders still persist (the record is the source of truth).
+    graph: {
+        tenantId: process.env.GRAPH_TENANT_ID || null,
+        clientId: process.env.GRAPH_CLIENT_ID || null,
+        clientSecret: process.env.GRAPH_CLIENT_SECRET || null,
+        mailFrom: process.env.MAIL_FROM || null,
+        mailTo: process.env.MAIL_TO || null,
+    },
 };

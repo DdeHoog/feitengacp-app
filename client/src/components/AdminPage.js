@@ -103,6 +103,9 @@ function AdminPage() {
                                 <div className="flex items-center justify-between px-4 py-3">
                                     <div className="text-sm">
                                         <span className="font-semibold text-gray-900">{o.our_reference}</span>
+                                        <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${o.email_status === 'sent' ? 'bg-green-100 text-green-700' : o.email_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                                            email: {o.email_status}
+                                        </span>
                                         <span className="text-gray-500"> · {o.company_name}</span>
                                         <span className="text-gray-500"> · {fmt(o.created_at)} · {o.lines.length} item{o.lines.length !== 1 ? 's' : ''}</span>
                                     </div>

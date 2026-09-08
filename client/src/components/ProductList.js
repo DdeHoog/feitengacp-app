@@ -14,7 +14,7 @@ function OrderCell({ product, onAdd }) {
                 min="1"
                 value={qty}
                 onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-16 border border-gray-300 rounded px-1 py-0.5 text-sm"
+                className="w-10 border border-gray-300 rounded px-1 py-0.5 text-sm"
                 aria-label={`Quantity for ${product['Item Code']}`}
             />
             <button
@@ -161,7 +161,7 @@ function ProductList() {
     const headers = [
         { label: 'Article Nr.', key: 'Item Code' },
         { label: 'Description', key: 'Item Description' },
-        { label: 'Type of SKIN / CORE', key: 'Type of Skin' },
+        { label: 'SKIN / CORE', key: 'Type of Skin' },
         { label: 'Thickness', key: 'Thickness' },
         { label: 'Length', key: 'Length' },
         { label: 'Width', key: 'Width' },
@@ -235,36 +235,36 @@ function ProductList() {
                                             ref={el => headerRefs.current[index] = el}
                                             key={header.key}
                                             scope="col"
-                                            className={`px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider relative select-none ${isFilterable ? 'cursor-pointer hover:bg-[#00457F]' : ''}`}
+                                            className={`px-3 py-3 text-left text-xs font-medium text-white uppercase relative select-none ${header.key === 'Type of Skin' ? 'max-w-[7rem]' : ''} ${isFilterable ? 'cursor-pointer hover:bg-[#00457F]' : ''}`}
                                             onClick={() => isFilterable && toggleDropdown(header.key, index)}
                                         >
                                             <div className="flex items-center">
-                                                <span>{header.label}</span>
+                                                <span className={header.key === 'Type of Skin' ? 'whitespace-normal' : ''}>{header.label}</span>
                                                 {isFilterable && (
-                                                    <span className="ml-2 text-white/70">&#x25BC;</span>
+                                                    <span className="ml-1 text-white/70">&#x25BC;</span>
                                                 )}
                                             </div>
                                         </th>
                                     );
                                 })}
-                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">Order</th>
+                                <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-white uppercase">Order</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {filteredProducts.map((product, index) => (
                                 <tr key={product.id} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-900">{product["Item Code"]}</td>
-                                    <td className="px-5 py-3 whitespace-normal text-sm text-gray-700">{product["Item Description"]}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Type of Skin"]}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Thickness"]}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Length"]}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Width"]}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Color"]}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-blue-700 font-semibold">{formatStock(product["Free Stock"])}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-orange-700 font-semibold">{formatStock(product["Planned In"])}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-green-700 font-semibold">{formatStock(product["Expected Stock"])}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap text-sm text-gray-700">{product["Pallet QTY"] == null ? "—" : Number(product["Pallet QTY"])}</td>
-                                    <td className="px-5 py-3 whitespace-nowrap">
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-900">{product["Item Code"]}</td>
+                                    <td className="px-3 py-3 whitespace-normal text-sm text-gray-700">{product["Item Description"]}</td>
+                                    <td className="px-3 py-3 whitespace-normal text-sm text-gray-700">{product["Type of Skin"]}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">{product["Thickness"]}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">{product["Length"]}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">{product["Width"]}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">{product["Color"]}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-blue-700 font-semibold">{formatStock(product["Free Stock"])}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-orange-700 font-semibold">{formatStock(product["Planned In"])}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-green-700 font-semibold">{formatStock(product["Expected Stock"])}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-700">{product["Pallet QTY"] == null ? "—" : Number(product["Pallet QTY"])}</td>
+                                    <td className="px-3 py-3 whitespace-nowrap">
                                         <OrderCell
                                             product={product}
                                             onAdd={(qty) => addItem({ article_code: product["Item Code"], description: product["Item Description"] }, qty)}
