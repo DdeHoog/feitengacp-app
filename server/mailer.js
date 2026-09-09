@@ -3,9 +3,21 @@
 // auth; the access token is cached until it nears expiry. If Graph isn't configured
 // (env unset), sending is skipped — orders still persist (the DB is the source of truth).
 
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const config = require('./config');
 const logger = require('./logger');
+
+// Footer banner, embedded as an inline (cid:) attachment — remote <img> URLs are
+// blocked by default in most mail clients, base64 src doesn't render in Outlook.
+const BANNER_PATH = path.join(__dirname, 'data', 'banner.png');
+let bannerBase64 = null;
+try {
+    bannerBase64 = fs.readFileSync(BANNER_PATH).toString('base64');
+} catch (err) {
+    logger.warn({ path: BANNER_PATH }, 'Mail banner not found — sending without it');
+}
 
 const { tenantId, clientId, clientSecret, mailFrom, mailTo } = config.graph;
 const enabled = !!(tenantId && clientId && clientSecret && mailFrom && mailTo);
@@ -31,7 +43,19 @@ async function getToken() {
 
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
-function renderHtml(order, lines, { heading, intro } = {}) {
+// Company details mirror the site footer (client/src/components/Layout.js).
+const SIGNOFF = `
+    <p style="margin:18px 0 2px">Kind regards,</p>
+    <p style="margin:0 0 10px"><strong>Feiteng Composites (Europe) B.V.</strong></p>
+    <p style="margin:0;color:#555;font-size:13px;line-height:1.5">
+        Industriestraat 4<br>
+        5804 CK Venray<br>
+        The Netherlands<br>
+        Phone: +31 (0)85 016 1962<br>
+        Email: <a href="mailto:sales@feitengacp.eu" style="color:#004EA2">sales@feitengacp.eu</a>
+    </p>`;
+
+function renderHtml(order, lines, { heading, intro, signoff = false } = {}) {
     const rows = lines.map((l) => `
         <tr>
             <td style="padding:4px 10px;border-bottom:1px solid #eee">${esc(l.article_code)}</td>
@@ -41,28 +65,30 @@ function renderHtml(order, lines, { heading, intro } = {}) {
     const field = (label, value) => `<p style="margin:2px 0"><strong>${label}:</strong> ${esc(value) || '—'}</p>`;
     return `
         <div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-            <h2 style="color:#004EA2">${esc(heading || `Nieuwe order ${order.our_reference}`)}</h2>
+            <h2 style="color:#004EA2">${esc(heading || `New order ${order.our_reference}`)}</h2>
             ${intro ? `<p style="margin:0 0 10px">${esc(intro)}</p>` : ''}
-            ${field('Bedrijf', order.company_name)}
-            ${field('Debiteurnr', order.debtor_number)}
-            ${field('Besteller', order.orderer_name)}
+            ${field('Company name', order.company_name)}
+            ${field('Customer number', order.debtor_number)}
+            ${field('Name of Purchaser', order.orderer_name)}
             ${field('E-mail', order.orderer_email)}
-            ${field('Telefoon', order.phone)}
-            ${field('Klant-referentie', order.customer_reference)}
-            ${field('Gewenste verzenddatum', order.desired_ship_date)}
-            ${field('Besteldatum', new Date(order.created_at).toLocaleString('nl-NL'))}
-            <p style="margin:8px 0 2px"><strong>Afleveradres:</strong></p>
+            ${field('Telephone', order.phone)}
+            ${field('Your reference / order number', order.customer_reference)}
+            ${field('Requested shipping date', order.desired_ship_date)}
+            ${field('Date of order', new Date(order.created_at).toLocaleString('en-GB'))}
+            <p style="margin:8px 0 2px"><strong>Delivery address:</strong></p>
             <p style="margin:0;white-space:pre-line">${esc(order.delivery_address)}</p>
             <table style="border-collapse:collapse;margin-top:12px;min-width:420px">
                 <thead>
                     <tr style="text-align:left;color:#555">
-                        <th style="padding:4px 10px;border-bottom:2px solid #ccc">Artikel</th>
-                        <th style="padding:4px 10px;border-bottom:2px solid #ccc">Omschrijving</th>
-                        <th style="padding:4px 10px;border-bottom:2px solid #ccc;text-align:right">Aantal</th>
+                        <th style="padding:4px 10px;border-bottom:2px solid #ccc">Article</th>
+                        <th style="padding:4px 10px;border-bottom:2px solid #ccc">Description</th>
+                        <th style="padding:4px 10px;border-bottom:2px solid #ccc;text-align:right">Quantity</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
+            ${signoff ? SIGNOFF : ''}
+            ${bannerBase64 ? '<p style="margin:20px 0 0"><img src="cid:feitengbanner" alt="Feiteng Composites (Europe) B.V." width="724" style="max-width:100%;height:auto;display:block"></p>' : ''}
         </div>`;
 }
 
@@ -75,6 +101,16 @@ async function send(to, subject, html) {
                 subject,
                 body: { contentType: 'HTML', content: html },
                 toRecipients: to.map((address) => ({ emailAddress: { address } })),
+                ...(bannerBase64 && {
+                    attachments: [{
+                        '@odata.type': '#microsoft.graph.fileAttachment',
+                        name: 'banner.png',
+                        contentType: 'image/png',
+                        isInline: true,
+                        contentId: 'feitengbanner',
+                        contentBytes: bannerBase64,
+                    }],
+                }),
             },
             saveToSentItems: true,
         },
@@ -93,7 +129,7 @@ async function sendOrderEmail(order, lines) {
     const recipients = mailTo.split(',').map((s) => s.trim()).filter(Boolean);
     await send(
         recipients,
-        `Nieuwe order ${order.our_reference} — ${order.company_name || ''}`.trim(),
+        `New order ${order.our_reference} — ${order.company_name || ''}`.trim(),
         renderHtml(order, lines)
     );
     return true;
@@ -106,10 +142,11 @@ async function sendCustomerCopy(order, lines) {
     if (!enabled || !order.orderer_email) return false;
     await send(
         [order.orderer_email],
-        `Bevestiging van uw order ${order.our_reference}`,
+        `Confirmation of your order request ${order.our_reference}`,
         renderHtml(order, lines, {
-            heading: `Bevestiging van uw order ${order.our_reference}`,
-            intro: 'Bedankt voor uw bestelling. Hieronder vindt u een overzicht van uw order. Wij nemen zo spoedig mogelijk contact met u op.',
+            heading: `Confirmation of your order request ${order.our_reference}`,
+            intro: 'Many thanks for your order. Below find the details of your order. We will contact you a.s.a.p.',
+            signoff: true, // customer-facing; the internal sales@ notification doesn't need one
         })
     );
     return true;
