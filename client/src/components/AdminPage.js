@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../authContext';
 import apiClient from '../api';
+import { sheetsFor, sheetsOfLine } from '../quantities';
 
 // Admin overview. Batch 6 slice pulled forward: submitted orders per customer +
 // a CSV export, so Ad can process orders from here until the email (4b) lands.
@@ -43,14 +44,21 @@ function AdminPage() {
             const s = v == null ? '' : String(v);
             return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
         };
-        const cols = ['Company', 'Debtor #', 'Order Ref', 'Customer Ref', 'Order Date', 'Orderer Name', 'Orderer Email', 'Phone', 'Desired Ship Date', 'Delivery Address', 'Article Code', 'Description', 'Quantity'];
+        // Pallets / Sheets per pallet / Sheets: orders from before pallet ordering have
+        // no pallet figures (they were entered in sheets); "tbc" = pallet size unknown,
+        // sheets derived with the assumed size.
+        const cols = ['Company', 'Debtor #', 'Order Ref', 'Customer Ref', 'Order Date', 'Orderer Name', 'Orderer Email', 'Phone', 'Desired Ship Date', 'Delivery Address', 'Article Code', 'Description', 'Pallets', 'Sheets per pallet', 'Sheets'];
         const rows = [cols.join(',')];
         for (const o of list) {
             for (const l of o.lines) {
+                const pallet = l.unit === 'pallet';
                 rows.push([
                     o.company_name, o.debtor_number, o.our_reference, o.customer_reference, fmt(o.created_at),
                     o.orderer_name, o.orderer_email, o.phone, o.desired_ship_date, o.delivery_address,
-                    l.article_code, l.description, l.quantity,
+                    l.article_code, l.description,
+                    pallet ? l.quantity : '',
+                    pallet ? (l.pallet_qty ?? 'tbc') : '',
+                    pallet ? sheetsFor(l.quantity, l.pallet_qty).sheets : l.quantity,
                 ].map(esc).join(','));
             }
         }
@@ -133,7 +141,8 @@ function AdminPage() {
                                                 <tr className="text-left text-gray-500 border-b">
                                                     <th className="py-1 pr-4">Article</th>
                                                     <th className="py-1 pr-4">Description</th>
-                                                    <th className="py-1">Qty</th>
+                                                    <th className="py-1 pr-4">Pallets</th>
+                                                    <th className="py-1">Sheets</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -141,7 +150,8 @@ function AdminPage() {
                                                     <tr key={i} className="border-b border-gray-100">
                                                         <td className="py-1 pr-4 font-medium text-gray-900">{l.article_code}</td>
                                                         <td className="py-1 pr-4 text-gray-600">{l.description}</td>
-                                                        <td className="py-1">{l.quantity}</td>
+                                                        <td className="py-1 pr-4">{l.unit === 'pallet' ? l.quantity : '—'}</td>
+                                                        <td className="py-1 whitespace-nowrap">{sheetsOfLine(l)}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>

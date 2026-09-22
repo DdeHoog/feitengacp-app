@@ -7,14 +7,16 @@
 // Exact — so we refresh lazily: the `sync/Logistics/Items` delta feed tells us
 // WHICH items changed, and we refetch ItemExtraField only for those.
 //
-// Phase 1 (current): the cache is populated and exposed via /api/debug/item-fields
-// to compare against the regex/exception parser. It does NOT yet drive the
-// /api/products response. In-memory only; re-warmed on each server restart.
+// Drives /api/products (API values win over the regex parser) and, since pallet
+// ordering (2026-09-22), the pallet size an order's sheet count is derived from — so
+// an item whose fetch failed is retried on the next poll instead of staying blank
+// until a restart. In-memory only; re-warmed on each server restart.
 
 const logger = require('./logger');
 const exactClient = require('./exactClient');
 
 const fields = new Map();      // ItemId (GUID) -> mapped fields object
+const retry = new Map();       // ItemId -> {ItemId, ItemCode} whose fetch failed; retried on the next poll
 let lastItemsTimestamp = 0;    // Items sync high-water mark for delta detection
 let lastWarmAt = null;
 let lastError = null;
@@ -47,7 +49,7 @@ function get(itemId) {
 }
 
 function getStatus() {
-    return { ready, warming, entries: fields.size, lastItemsTimestamp, lastWarmAt, lastError };
+    return { ready, warming, entries: fields.size, retryPending: retry.size, lastItemsTimestamp, lastWarmAt, lastError };
 }
 
 // Fetch extra fields for a list of items [{ItemId, ItemCode}], concurrency-capped.
@@ -63,9 +65,11 @@ async function fetchForItems(accessToken, items, concurrency = 3) {
             try {
                 const rows = await exactClient.getItemExtraFields(accessToken, item.ItemId);
                 fields.set(item.ItemId, mapFields(rows));
+                retry.delete(item.ItemId);
                 ok++;
             } catch (err) {
                 failed++;
+                retry.set(item.ItemId, { ItemId: item.ItemId, ItemCode: item.ItemCode });
                 logger.warn({ itemId: item.ItemId, code: item.ItemCode, err: err.message }, 'ItemExtraField fetch failed');
             }
         }
@@ -112,7 +116,8 @@ async function warm(getAccessToken, getVisibleItems) {
 }
 
 // Refresh only items changed since the last check (via Items sync delta), and
-// only those we actually track (i.e. visible). Cheap: usually zero changes.
+// only those we actually track (i.e. visible), plus any earlier fetch failures.
+// Cheap: usually zero changes.
 async function refreshChanged(getAccessToken) {
     if (warming || !ready) return;
     try {
@@ -125,15 +130,15 @@ async function refreshChanged(getAccessToken) {
             if (ts > lastItemsTimestamp) lastItemsTimestamp = ts;
         }
 
-        const tracked = changed.filter((it) => fields.has(it.ID));
-        if (tracked.length === 0) {
+        const tracked = changed.filter((it) => fields.has(it.ID)).map((it) => ({ ItemId: it.ID, ItemCode: it.Code }));
+        const items = [...new Map([...tracked, ...retry.values()].map((it) => [it.ItemId, it])).values()];
+        if (items.length === 0) {
             if (changed.length > 0) logger.debug({ changed: changed.length }, 'itemFieldsCache: changes not in visible set');
             return;
         }
-        const items = tracked.map((it) => ({ ItemId: it.ID, ItemCode: it.Code }));
         const { ok, failed } = await fetchForItems(accessToken, items);
         lastError = null;
-        logger.info({ changed: changed.length, refetched: tracked.length, ok, failed }, 'itemFieldsCache refreshed changed items');
+        logger.info({ changed: changed.length, refetched: items.length, ok, failed, retryPending: retry.size }, 'itemFieldsCache refreshed changed items');
     } catch (err) {
         lastError = err.message;
         logger.error({ err: err.message }, 'itemFieldsCache refresh failed');

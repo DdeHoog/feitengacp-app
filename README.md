@@ -19,10 +19,12 @@ The combined repo is the canonical source for both **local development** and **p
 | Express hardening (`helmet`, rate limit, `config.js`, `pino`, `exactClient.js`) | ✅ live |
 | SQLite datastore + per-login customer profile cache | ✅ live |
 | Ordering: cart → review → submit, order history + reorder | ✅ live |
+| Order quantities in **pallets** (max 50 per order), sheet equivalent derived from the Exact pallet size and shown on the confirmation | ✅ built (dev) |
 | Order e-mail to `sales@` via Microsoft Graph | ✅ live |
 | Admin area: orders per customer + CSV export | ✅ live |
-| Forecast (per month, up to 12 months ahead) | planned |
+| Forecast: monthly grid per article, plan vs. actual orders | ✅ built (dev) |
 | Admin: customer login status, forecasts per customer | planned |
+| Quick-order page, admin resend for failed e-mails | planned |
 | Nightly SQLite backup | planned |
 
 ---
@@ -62,6 +64,7 @@ ALLOWED_ORIGINS=http://localhost:3000,https://iritic-yanira-postgenital.ngrok-fr
 # Skip the per-item ItemExtraField boot warm — that burst otherwise rate-limits
 # (429) your logins for ~90s after every restart. Leave unset in production.
 WARM_ITEM_FIELDS=false
+FORECAST_ENABLED=true          # show the forecast page (hidden in prod until Ad approves)
 
 # Who may reach /admin (separate list from EXPORT_ALLOWED_EMAILS).
 ADMIN_EMAILS=you@example.com

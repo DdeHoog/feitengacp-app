@@ -2,27 +2,64 @@ import React, { useEffect, useState, useRef } from 'react';
 import useProducts from '../hooks/useProducts';
 import { useAuth } from '../authContext';
 import { useCart } from '../cartContext';
+import { MAX_PALLETS_PER_ORDER, formatSheets, TBC_HINT } from '../quantities';
 
-// Per-row order control: quantity + add-to-cart. Local qty state per row so
-// typing in one row doesn't re-render the whole (large) table.
-function OrderCell({ product, onAdd }) {
-    const [qty, setQty] = useState(1);
+// Per-row order control: pallets + add-to-cart. Local state per row so typing in one
+// row doesn't re-render the whole (large) table. The box starts empty — the customer
+// types the number — and the Pallet QTY column beside it already says how many sheets a
+// pallet holds, so the only hint here is for an article WITHOUT a registered size: it
+// orders as "t.b.c." with an assumed 50 sheets per pallet, which must be visible before
+// Add. `remaining` = pallets still allowed in this order (the cap is per order).
+function OrderCell({ product, onAdd, remaining }) {
+    const [qty, setQty] = useState('');
+    const [note, setNote] = useState(null);
+    const palletQty = product['Pallet QTY'];
+    const change = (e) => {
+        setNote(null);
+        const v = e.target.value;
+        setQty(v === '' ? '' : Math.min(MAX_PALLETS_PER_ORDER, Math.max(1, parseInt(v, 10) || 1)));
+    };
+    const add = () => {
+        const n = Number(qty);
+        if (!n) {
+            setNote('Enter the number of pallets first.');
+            return;
+        }
+        if (n > remaining) {
+            setNote(remaining > 0
+                ? `Max ${MAX_PALLETS_PER_ORDER} pallets per order — room for ${remaining} more.`
+                : `Your order already holds the maximum of ${MAX_PALLETS_PER_ORDER} pallets.`);
+            return;
+        }
+        setNote(null);
+        setQty('');
+        onAdd(n);
+    };
     return (
-        <div className="flex items-center gap-1">
-            <input
-                type="number"
-                min="1"
-                value={qty}
-                onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm"
-                aria-label={`Quantity for ${product['Item Code']}`}
-            />
-            <button
-                onClick={() => onAdd(qty)}
-                className="px-2 py-1 rounded bg-[#003F84] text-white text-xs font-semibold hover:bg-[#00457F] transition-colors"
-            >
-                Add
-            </button>
+        <div>
+            <div className="flex items-center gap-1">
+                <input
+                    type="number"
+                    min="1"
+                    max={MAX_PALLETS_PER_ORDER}
+                    value={qty}
+                    onChange={change}
+                    className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm"
+                    aria-label={`Pallets for ${product['Item Code']}`}
+                />
+                <button
+                    onClick={add}
+                    className="px-2 py-1 rounded bg-[#003F84] text-white text-xs font-semibold hover:bg-[#00457F] transition-colors"
+                >
+                    Add
+                </button>
+            </div>
+            {palletQty == null && (
+                <div className="text-[11px] leading-4 text-gray-400 whitespace-nowrap" title={TBC_HINT}>
+                    = {formatSheets(Number(qty) || 1, null)}
+                </div>
+            )}
+            {note && <div className="text-[11px] leading-4 text-red-600 whitespace-nowrap">{note}</div>}
         </div>
     );
 }
@@ -30,7 +67,8 @@ function OrderCell({ product, onAdd }) {
 function ProductList() {
     const { products, loading, error } = useProducts();
     const { canExport } = useAuth();
-    const { addItem } = useCart();
+    const { addItem, totalPallets } = useCart();
+    const remaining = MAX_PALLETS_PER_ORDER - totalPallets;
     const [filters, setFilters] = useState({});
     const [activeDropdown, setActiveDropdown] = useState(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -247,7 +285,7 @@ function ProductList() {
                                         </th>
                                     );
                                 })}
-                                <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-white uppercase">Order</th>
+                                <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-white uppercase">Order (pallets)</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -267,6 +305,7 @@ function ProductList() {
                                     <td className="px-3 py-3 whitespace-nowrap">
                                         <OrderCell
                                             product={product}
+                                            remaining={remaining}
                                             onAdd={(qty) => addItem({ article_code: product["Item Code"], description: product["Item Description"] }, qty)}
                                         />
                                     </td>

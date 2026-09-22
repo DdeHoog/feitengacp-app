@@ -4,7 +4,7 @@ import { useAuth } from '../authContext';
 import { useCart } from '../cartContext';
 
 function Layout() {
-  const { authToken, logout, isAdmin } = useAuth();
+  const { authToken, logout, isAdmin, features } = useAuth();
   const { count } = useCart();
 
   const navLinkStyles = ({ isActive }) => ({
@@ -69,6 +69,9 @@ function Layout() {
                 </li>
                 <li><NavLink to="/stock" style={navLinkStyles}>Stock</NavLink></li>
                 <li><NavLink to="/orders" style={navLinkStyles}>My Orders</NavLink></li>
+                {features.forecast && (
+                  <li><NavLink to="/forecast" style={navLinkStyles}>Forecast</NavLink></li>
+                )}
                 <li><NavLink to="/contact" style={navLinkStyles}>Download</NavLink></li>
                 {isAdmin && (
                   <li><NavLink to="/admin" style={navLinkStyles}>Admin</NavLink></li>

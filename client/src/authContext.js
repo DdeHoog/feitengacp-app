@@ -88,6 +88,8 @@ export const AuthProvider = ({ children }) => {
         userEmail: claims?.email || null,
         canExport: !!claims?.canExport,
         isAdmin: !!claims?.isAdmin,
+        // Server-side feature flags for this session (FORECAST_ENABLED → forecast page).
+        features: { forecast: !!claims?.features?.forecast },
     };
 
     return (

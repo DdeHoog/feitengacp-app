@@ -1,16 +1,28 @@
-import React, { useEffect, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../authContext';
 import { useCart } from '../cartContext';
+import useProducts from '../hooks/useProducts';
 import apiClient from '../api';
+import { MAX_PALLETS_PER_ORDER, ASSUMED_PALLET_QTY, formatSheets, TBC_HINT } from '../quantities';
 
 // Review + submit the in-progress order. Company/debtor#/email come from Exact
 // (read-only identity); the customer confirms/edits name, phone, delivery address
 // (prefilled from Exact) + reference + ship date — all required except reference.
+// Quantities are pallets (Ad, 2026-09-22): the sheet equivalent is shown per line
+// from the live pallet size, and the server re-derives + snapshots it on submit.
 // Persists via POST /api/orders (the email to sales@ is Batch 4b).
 function CartPage() {
     const { isAuthReady, isAuthenticated } = useAuth();
-    const { lines, setQty, removeItem, clear } = useCart();
+    const { lines, setQty, removeItem, clear, totalPallets } = useCart();
+    const { products, loading: productsLoading } = useProducts();
+    const location = useLocation();
+    const notice = location.state?.notice; // e.g. "converted from sheets" after a legacy reorder
+    const palletQtyByCode = useMemo(
+        () => Object.fromEntries((products || []).map((p) => [p['Item Code'], p['Pallet QTY']])),
+        [products]
+    );
+    const overLimit = totalPallets > MAX_PALLETS_PER_ORDER;
 
     const [profile, setProfile] = useState(null);
     const [ordererName, setOrdererName] = useState('');
@@ -40,6 +52,7 @@ function CartPage() {
     const validate = () => {
         const errs = {};
         if (lines.length === 0) errs.lines = 'Your cart is empty.';
+        if (overLimit) errs.lines = `An order can contain at most ${MAX_PALLETS_PER_ORDER} pallets in total — please reduce the quantities.`;
         if (!ordererName.trim()) errs.ordererName = 'Please enter your name.';
         if (!phone.trim()) errs.phone = 'Please enter a phone number.';
         if (!deliveryAddr.trim()) errs.deliveryAddr = 'Please enter a delivery address.';
@@ -105,6 +118,7 @@ function CartPage() {
     return (
         <div className="p-6 max-w-3xl">
             <h1 className="text-2xl font-bold text-[#004EA2] mb-4">Review your order</h1>
+            {notice && <p className="mb-4 px-3 py-2 rounded bg-amber-50 border border-amber-200 text-sm text-amber-800">{notice}</p>}
 
             {/* Identity from Exact (read-only) */}
             <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-5 text-sm text-gray-700">
@@ -113,37 +127,54 @@ function CartPage() {
                 {profile?.email && <p>Ordered by: {profile.email}</p>}
             </div>
 
-            {/* Lines */}
-            <table className="min-w-full text-sm mb-5">
+            {/* Lines — quantities are pallets; the Sheets column is what the order will say */}
+            <table className="min-w-full text-sm mb-2">
                 <thead>
                     <tr className="text-left text-gray-500 border-b">
                         <th className="py-2 pr-4">Article</th>
                         <th className="py-2 pr-4">Description</th>
-                        <th className="py-2 pr-4 w-28">Qty</th>
+                        <th className="py-2 pr-4 w-24">Pallets</th>
+                        <th className="py-2 pr-4">Sheets</th>
                         <th className="py-2"></th>
                     </tr>
                 </thead>
                 <tbody>
-                    {lines.map((l) => (
-                        <tr key={l.article_code} className="border-b">
-                            <td className="py-2 pr-4 font-medium text-gray-900">{l.article_code}</td>
-                            <td className="py-2 pr-4 text-gray-600">{l.description}</td>
-                            <td className="py-2 pr-4">
-                                <input
-                                    type="number"
-                                    min="1"
-                                    value={l.quantity}
-                                    onChange={(e) => setQty(l.article_code, Math.max(1, parseInt(e.target.value, 10) || 1))}
-                                    className="w-20 border border-gray-300 rounded px-1 py-0.5"
-                                />
-                            </td>
-                            <td className="py-2">
-                                <button onClick={() => removeItem(l.article_code)} className="text-red-600 hover:underline">Remove</button>
-                            </td>
-                        </tr>
-                    ))}
+                    {lines.map((l) => {
+                        const palletQty = palletQtyByCode[l.article_code] ?? null;
+                        return (
+                            <tr key={l.article_code} className="border-b">
+                                <td className="py-2 pr-4 font-medium text-gray-900">{l.article_code}</td>
+                                <td className="py-2 pr-4 text-gray-600">{l.description}</td>
+                                <td className="py-2 pr-4">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max={MAX_PALLETS_PER_ORDER}
+                                        value={l.quantity}
+                                        onChange={(e) => setQty(l.article_code, Math.min(MAX_PALLETS_PER_ORDER, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                                        className="w-20 border border-gray-300 rounded px-1 py-0.5"
+                                        aria-label={`Pallets for ${l.article_code}`}
+                                    />
+                                </td>
+                                <td className="py-2 pr-4 text-gray-600 whitespace-nowrap" title={!productsLoading && palletQty == null ? TBC_HINT : undefined}>
+                                    {productsLoading ? '…' : formatSheets(l.quantity, palletQty)}
+                                </td>
+                                <td className="py-2">
+                                    <button onClick={() => removeItem(l.article_code)} className="text-red-600 hover:underline">Remove</button>
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
+            <p className={`text-sm mb-1 ${overLimit ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
+                Total: {totalPallets} pallet{totalPallets !== 1 ? 's' : ''} (max {MAX_PALLETS_PER_ORDER} per order)
+            </p>
+            {errText('lines')}
+            <p className="text-xs text-gray-500 mb-5">
+                Sheets are calculated from the pallet size registered for each article.{' '}
+                <strong>t.b.c.</strong> = no pallet size registered; {ASSUMED_PALLET_QTY} sheets per pallet assumed, exact quantity to be confirmed by sales.
+            </p>
 
             {/* Order details */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">

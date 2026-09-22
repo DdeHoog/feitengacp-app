@@ -8,6 +8,7 @@ const path = require('path');
 const axios = require('axios');
 const config = require('./config');
 const logger = require('./logger');
+const { sheetsForLine, ASSUMED_PALLET_QTY } = require('./quantities');
 
 // Footer banner, embedded as an inline (cid:) attachment — remote <img> URLs are
 // blocked by default in most mail clients, base64 src doesn't render in Outlook.
@@ -55,13 +56,22 @@ const SIGNOFF = `
         Email: <a href="mailto:sales@feitengacp.eu" style="color:#004EA2">sales@feitengacp.eu</a>
     </p>`;
 
+// Lines are in pallets (Ad, 2026-09-22) with the derived sheet count beside them —
+// "3 pallets (210 sheets)" is what he asked to see; "t.b.c." marks a line whose pallet
+// size isn't registered in Exact (sheets then assume ASSUMED_PALLET_QTY per pallet).
 function renderHtml(order, lines, { heading, intro, signoff = false } = {}) {
-    const rows = lines.map((l) => `
+    const cell = 'padding:4px 10px;border-bottom:1px solid #eee';
+    const rows = lines.map((l) => {
+        const { sheets, tbc } = sheetsForLine(l);
+        return `
         <tr>
-            <td style="padding:4px 10px;border-bottom:1px solid #eee">${esc(l.article_code)}</td>
-            <td style="padding:4px 10px;border-bottom:1px solid #eee">${esc(l.description)}</td>
-            <td style="padding:4px 10px;border-bottom:1px solid #eee;text-align:right">${esc(l.quantity)}</td>
-        </tr>`).join('');
+            <td style="${cell}">${esc(l.article_code)}</td>
+            <td style="${cell}">${esc(l.description)}</td>
+            <td style="${cell};text-align:right">${l.unit === 'pallet' ? esc(l.quantity) : '—'}</td>
+            <td style="${cell};text-align:right">${esc(sheets.toLocaleString('en-GB'))}${tbc ? ' <em>t.b.c.</em>' : ''}</td>
+        </tr>`;
+    }).join('');
+    const anyTbc = lines.some((l) => sheetsForLine(l).tbc);
     const field = (label, value) => `<p style="margin:2px 0"><strong>${label}:</strong> ${esc(value) || '—'}</p>`;
     return `
         <div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
@@ -82,11 +92,13 @@ function renderHtml(order, lines, { heading, intro, signoff = false } = {}) {
                     <tr style="text-align:left;color:#555">
                         <th style="padding:4px 10px;border-bottom:2px solid #ccc">Article</th>
                         <th style="padding:4px 10px;border-bottom:2px solid #ccc">Description</th>
-                        <th style="padding:4px 10px;border-bottom:2px solid #ccc;text-align:right">Quantity</th>
+                        <th style="padding:4px 10px;border-bottom:2px solid #ccc;text-align:right">Pallets</th>
+                        <th style="padding:4px 10px;border-bottom:2px solid #ccc;text-align:right">Sheets</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
+            ${anyTbc ? `<p style="margin:6px 0 0;color:#555;font-size:12px"><em>t.b.c.</em> = exact quantity to be confirmed: no pallet size is registered for this article, so ${ASSUMED_PALLET_QTY} sheets per pallet were assumed.</p>` : ''}
             ${signoff ? SIGNOFF : ''}
             ${bannerBase64 ? '<p style="margin:20px 0 0"><img src="cid:feitengbanner" alt="Feiteng Composites (Europe) B.V." width="724" style="max-width:100%;height:auto;display:block"></p>' : ''}
         </div>`;
@@ -152,4 +164,4 @@ async function sendCustomerCopy(order, lines) {
     return true;
 }
 
-module.exports = { sendOrderEmail, sendCustomerCopy, enabled };
+module.exports = { sendOrderEmail, sendCustomerCopy, enabled, renderHtml /* exported for tests */ };

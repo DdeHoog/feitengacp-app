@@ -12,6 +12,7 @@ import DownloadPage from './components/DownloadPage';
 import AdminPage from './components/AdminPage';
 import CartPage from './components/CartPage';
 import MyOrdersPage from './components/MyOrdersPage';
+import ForecastPage from './components/ForecastPage';
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
                 <Route path="admin" element={<AdminPage />} />
                 <Route path="cart" element={<CartPage />} />
                 <Route path="orders" element={<MyOrdersPage />} />
+                <Route path="forecast" element={<ForecastPage />} />
               </Route>
             </Routes>
           </CartProvider>

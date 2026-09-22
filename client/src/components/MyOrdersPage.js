@@ -1,16 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../authContext';
 import { useCart } from '../cartContext';
+import useProducts from '../hooks/useProducts';
 import apiClient from '../api';
+import { MAX_PALLETS_PER_ORDER, ASSUMED_PALLET_QTY, formatLine } from '../quantities';
 
 // The customer's own submitted orders. Read-only history; "Reorder" loads an
 // order's lines back into the cart (editable there — covers order-again AND
 // copy-and-edit). Ad's all-customer view is the separate admin page (Batch 6).
 function MyOrdersPage() {
-    const { isAuthReady, isAuthenticated } = useAuth();
+    const { isAuthReady, isAuthenticated, features } = useAuth();
     const { replaceItems, count } = useCart();
     const navigate = useNavigate();
+    const { products } = useProducts(); // pallet sizes, for converting pre-pallet orders on reorder
+    const palletQtyByCode = useMemo(
+        () => Object.fromEntries((products || []).map((p) => [p['Item Code'], p['Pallet QTY']])),
+        [products]
+    );
 
     const [orders, setOrders] = useState(null);
     const [error, setError] = useState(null);
@@ -30,8 +37,19 @@ function MyOrdersPage() {
         // Replace the cart with this order (fixing a wrong click = just reorder the
         // right one). Confirm only if there's an in-progress cart to avoid a silent wipe.
         if (count > 0 && !window.confirm('This will replace your current cart with this order. Continue?')) return;
-        replaceItems(order.lines.map((l) => ({ article_code: l.article_code, description: l.description, quantity: l.quantity })));
-        navigate('/cart');
+        // Orders from before pallet ordering hold sheet counts; the cart is always pallets,
+        // so convert with today's pallet size, rounded up to whole pallets, and say so.
+        const legacy = order.lines.some((l) => l.unit !== 'pallet');
+        replaceItems(order.lines.map((l) => ({
+            article_code: l.article_code,
+            description: l.description,
+            quantity: l.unit === 'pallet'
+                ? l.quantity
+                : Math.min(MAX_PALLETS_PER_ORDER, Math.ceil(l.quantity / (palletQtyByCode[l.article_code] ?? ASSUMED_PALLET_QTY))),
+        })));
+        navigate('/cart', legacy
+            ? { state: { notice: 'This order was placed in sheets. The quantities were converted to whole pallets (rounded up) — please check them before submitting.' } }
+            : undefined);
     };
 
     const fmtDate = (ms) => new Date(ms).toLocaleDateString();
@@ -63,6 +81,14 @@ function MyOrdersPage() {
                                     {openId === o.id ? 'Hide' : 'Details'}
                                 </button>
                                 <button onClick={() => reorder(o)} className="text-[#004EA2] hover:underline">Reorder</button>
+                                {features.forecast && (
+                                    <button
+                                        onClick={() => navigate('/forecast', { state: { seed: o.lines, from: o.our_reference } })}
+                                        className="text-[#004EA2] hover:underline"
+                                    >
+                                        Use as forecast
+                                    </button>
+                                )}
                             </div>
                         </div>
                         {openId === o.id && (
@@ -75,7 +101,7 @@ function MyOrdersPage() {
                                         <tr className="text-left text-gray-500 border-b">
                                             <th className="py-1 pr-4">Article</th>
                                             <th className="py-1 pr-4">Description</th>
-                                            <th className="py-1">Qty</th>
+                                            <th className="py-1">Quantity</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -83,7 +109,7 @@ function MyOrdersPage() {
                                             <tr key={i} className="border-b border-gray-100">
                                                 <td className="py-1 pr-4 font-medium text-gray-900">{l.article_code}</td>
                                                 <td className="py-1 pr-4 text-gray-600">{l.description}</td>
-                                                <td className="py-1">{l.quantity}</td>
+                                                <td className="py-1 whitespace-nowrap">{formatLine(l)}</td>
                                             </tr>
                                         ))}
                                     </tbody>

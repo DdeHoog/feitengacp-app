@@ -3,7 +3,8 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
-    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecast, saveForecast, getAllForecasts, getOrderedByMonth } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { MAX_PALLETS_PER_ORDER } = require('./quantities');
     const mailer = require('./mailer');
 
     const express = require('express');
@@ -432,15 +433,18 @@
     // values over the legacy regex/exception parser. API is authoritative; regex
     // is the fallback when an API field is missing (and for any unmapped color).
     // Formatting matches the existing UI: mm appended to dimensions, thickness
-    // de-spaced ("2 mm" -> "2mm"), pallet qty as a number.
+    // de-spaced ("2 mm" -> "2mm").
+    // Pallet size is the exception: Exact only, no fallback to the hand-made JSON map
+    // (stale — and since 2026-09-22 this number drives order maths). Anything that is
+    // not a positive integer ('', '70 st') is "unknown" → null → shown as "t.b.c.".
     function resolveProductFields(r) {
         const regex = parseProductDescription(r.ItemDescription, r.ItemCode);
-        const regexPallet = palletQtyMap[normalizeItemCode(r.ItemCode)] ?? null;
         const api = itemFieldsCache.get(r.ItemId);
 
         const withUnit = (v) => (v == null || v === '' ? null : `${String(v).trim()}mm`);
         const noSpace = (v) => (v == null || v === '' ? null : String(v).replace(/\s+/g, ''));
         const apiColor = api && api.color ? translateColor(api.color) : null;
+        const apiPallet = Number.parseInt(api && api.palletQty, 10);
 
         return {
             typeOfSkin: (api && api.skinType) || regex.typeOfSkin || '',
@@ -448,8 +452,15 @@
             color: apiColor || regex.color || '',
             length: withUnit(api && api.length) || regex.length || '',
             width: withUnit(api && api.width) || regex.width || '',
-            palletQty: api && api.palletQty != null ? Number(api.palletQty) : regexPallet,
+            palletQty: Number.isInteger(apiPallet) && apiPallet > 0 ? apiPallet : null,
         };
+    }
+
+    // Visible stock rows keyed by article code. The order route validates lines against
+    // this (an article that isn't on the stock list can't be ordered) and takes the
+    // pallet size from it — never from the client.
+    function visibleByCode() {
+        return new Map(filterVisibleProducts(stockCache.getAll()).map((r) => [r.ItemCode, r]));
     }
 
 
@@ -504,6 +515,9 @@
                     name: matchedContact.FullName,
                     canExport,
                     isAdmin,
+                    // Feature flags the UI may show this session (config-derived, like
+                    // isAdmin — a flip is seen at the next login).
+                    features: { forecast: config.forecastEnabled },
                 };
                 const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' });
 
@@ -598,7 +612,15 @@
             });
         });
 
-        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact, /api/debug/cache, /api/debug/item-fields');
+        // Warm the item-fields cache on demand. Dev runs with WARM_ITEM_FIELDS=false (the
+        // boot burst 429-starves logins), but pallet sizes — and so order maths — come
+        // from that cache: log in first, then POST here and watch /api/debug/item-fields.
+        app.post('/api/debug/item-fields/warm', authenticateToken, (req, res) => {
+            itemFieldsCache.warm(getAccessToken, getVisibleItems); // background, self-paced
+            res.json({ started: true, cache: itemFieldsCache.getStatus() });
+        });
+
+        logger.info('DEBUG endpoints enabled: /api/debug/access-token, /api/debug/exact, /api/debug/cache, /api/debug/item-fields, POST /api/debug/item-fields/warm');
     }
 
     // === Product page API, sync from stockPosition with extra fields for product details ===
@@ -634,13 +656,33 @@
         if (!Array.isArray(lines) || lines.length === 0) {
             return res.status(400).json({ error: 'Add at least one product to the order.' });
         }
+        // Quantities are pallets (Ad, 2026-09-22): whole numbers, at most 50 per order in
+        // total — the cap also stops a sheet count being typed into the pallet field.
+        // The pallet size is looked up here and snapshotted on the line; unknown → NULL
+        // and the mail/UI say "t.b.c.". If the stock cache isn't warm yet (cold boot) the
+        // line is accepted without a size rather than failing the order.
+        const byCode = stockCache.isReady() ? visibleByCode() : null;
         const cleanLines = [];
+        let totalPallets = 0;
         for (const l of lines) {
             const code = String(l?.article_code || '').trim();
             const qty = Number(l?.quantity);
             if (!code) return res.status(400).json({ error: 'Each line needs an article code.' });
-            if (!Number.isInteger(qty) || qty <= 0) return res.status(400).json({ error: `Invalid quantity for ${code}.` });
-            cleanLines.push({ article_code: code, description: String(l?.description || '').trim() || null, quantity: qty });
+            if (!Number.isInteger(qty) || qty <= 0) return res.status(400).json({ error: `Invalid number of pallets for ${code}.` });
+            if (qty > MAX_PALLETS_PER_ORDER) return res.status(400).json({ error: `At most ${MAX_PALLETS_PER_ORDER} pallets per order (${code} alone has ${qty}).` });
+            totalPallets += qty;
+            let pallet_qty = null;
+            if (byCode) {
+                const row = byCode.get(code);
+                if (!row) return res.status(400).json({ error: `${code} is not on the current stock list.` });
+                pallet_qty = resolveProductFields(row).palletQty;
+            } else {
+                logger.warn({ code }, 'Stock cache not ready — order line saved without a pallet size (t.b.c.)');
+            }
+            cleanLines.push({ article_code: code, description: String(l?.description || '').trim() || null, quantity: qty, unit: 'pallet', pallet_qty });
+        }
+        if (totalPallets > MAX_PALLETS_PER_ORDER) {
+            return res.status(400).json({ error: `An order can contain at most ${MAX_PALLETS_PER_ORDER} pallets in total (this one has ${totalPallets}).` });
         }
 
         // Required customer-entered fields (Ad's requirement).
@@ -673,7 +715,7 @@
             phone: phoneNum,
         }, cleanLines);
 
-        logger.info({ our_reference, contactId: req.user.id, lines: cleanLines.length }, 'Order submitted');
+        logger.info({ our_reference, contactId: req.user.id, lines: cleanLines.length, pallets: totalPallets }, 'Order submitted');
 
         // Notify sales@ via Graph — background: the order is already saved, so a slow or
         // failed send never blocks/breaks the response; email_status records the outcome.
@@ -707,6 +749,64 @@
     // The logged-in customer's own order history (with lines).
     app.get('/api/orders', authenticateToken, (req, res) => {
         res.json(getOrdersForContact(req.user.id));
+    });
+
+    // === Forecast ===
+    // Customers may plan the current and next calendar year (boekjaar = Jan–Dec).
+    const forecastYears = () => {
+        const y = new Date().getFullYear();
+        return [y, y + 1];
+    };
+    const parseYear = (raw) => {
+        const y = Number(raw) || forecastYears()[0];
+        return forecastYears().includes(y) ? y : null;
+    };
+
+    // Hidden until Ad approves (FORECAST_ENABLED): the UI hides the page, this is the
+    // real boundary. 404 rather than 403 — the feature doesn't exist for that deployment.
+    const requireForecast = (req, res, next) => (config.forecastEnabled ? next() : res.status(404).json({ error: 'Not available.' }));
+
+    app.get('/api/forecast', authenticateToken, requireForecast, (req, res) => {
+        const year = parseYear(req.query.year);
+        if (!year) return res.status(400).json({ error: 'Unsupported year.' });
+        res.json({
+            year,
+            years: forecastYears(),
+            cells: getForecast(req.user.id, year),
+            // What they've actually ordered for that year, so the grid can show
+            // plan vs. actual side by side.
+            ordered: getOrderedByMonth(req.user.id, year),
+        });
+    });
+
+    // Replaces the customer's whole grid for that year — the client always submits
+    // the complete grid it edited. Zero/blank quantities are simply dropped.
+    app.post('/api/forecast', authenticateToken, requireForecast, (req, res) => {
+        const year = parseYear(req.body.year);
+        if (!year) return res.status(400).json({ error: 'Unsupported year.' });
+        if (!Array.isArray(req.body.cells)) return res.status(400).json({ error: 'cells must be an array.' });
+
+        const cells = [];
+        for (const c of req.body.cells) {
+            const code = String(c?.article_code || '').trim();
+            const month = Number(c?.month);
+            const qty = Number(c?.quantity);
+            if (!code) return res.status(400).json({ error: 'Each entry needs an article code.' });
+            if (!Number.isInteger(month) || month < 1 || month > 12) return res.status(400).json({ error: `Invalid month for ${code}.` });
+            if (!Number.isFinite(qty) || qty < 0) return res.status(400).json({ error: `Invalid quantity for ${code}.` });
+            if (qty > 0) cells.push({ article_code: code, month, quantity: Math.round(qty) });
+        }
+
+        saveForecast(req.user.id, year, cells);
+        logger.info({ contactId: req.user.id, year, cells: cells.length }, 'Forecast saved');
+        res.json({ year, saved: cells.length });
+    });
+
+    // All customers' forecasts for a year (admin overview — surfaced in Batch 6).
+    app.get('/api/admin/forecasts', authenticateToken, requireAdmin, requireForecast, (req, res) => {
+        const year = parseYear(req.query.year);
+        if (!year) return res.status(400).json({ error: 'Unsupported year.' });
+        res.json({ year, years: forecastYears(), rows: getAllForecasts(year) });
     });
 
     app.get('/api/products', authenticateToken, asyncHandler(async (req, res) => {

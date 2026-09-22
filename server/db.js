@@ -80,6 +80,16 @@ const MIGRATIONS = [
             ALTER TABLE orders ADD COLUMN phone         TEXT;
         `);
     },
+    // v3 — orders are placed in pallets (Ad, 2026-09-22). `unit` says what `quantity`
+    // means: 'sheet' for every line before this migration, 'pallet' from now on.
+    // `pallet_qty` = sheets per pallet snapshotted at order time (orders are immutable;
+    // Exact's pallet size may change later); NULL = unknown → shown as "t.b.c.".
+    (d) => {
+        d.exec(`
+            ALTER TABLE order_lines ADD COLUMN unit       TEXT NOT NULL DEFAULT 'sheet';
+            ALTER TABLE order_lines ADD COLUMN pallet_qty INTEGER;
+        `);
+    },
 ];
 
 function migrate() {
@@ -150,24 +160,33 @@ const insertOrderStmt = db.prepare(`
         (@our_reference, @customer_reference, @exact_contact_id, @company_name, @debtor_number, @delivery_address, @desired_ship_date, @orderer_name, @orderer_email, @phone, 'pending', @created_at)
 `);
 const insertLineStmt = db.prepare(`
-    INSERT INTO order_lines (order_id, article_code, description, quantity)
-    VALUES (@order_id, @article_code, @description, @quantity)
+    INSERT INTO order_lines (order_id, article_code, description, quantity, unit, pallet_qty)
+    VALUES (@order_id, @article_code, @description, @quantity, @unit, @pallet_qty)
 `);
 
 // Create an order + its lines atomically, assigning the next PORTAL reference.
-// `order` holds the snapshot fields; `lines` is [{article_code, description, quantity}].
+// `order` holds the snapshot fields; `lines` is [{article_code, description, quantity,
+// unit, pallet_qty}] — quantity in `unit` ('pallet' for new orders), pallet_qty the
+// sheets-per-pallet snapshot (null = unknown).
 // (nextSequence is itself a transaction — better-sqlite3 nests it via a savepoint.)
 const createOrder = db.transaction((order, lines) => {
     const our_reference = 'PORTAL' + String(nextSequence('portal_order')).padStart(4, '0');
     const info = insertOrderStmt.run({ ...order, our_reference, created_at: Date.now() });
     for (const l of lines) {
-        insertLineStmt.run({ order_id: info.lastInsertRowid, article_code: l.article_code, description: l.description ?? null, quantity: l.quantity });
+        insertLineStmt.run({
+            order_id: info.lastInsertRowid,
+            article_code: l.article_code,
+            description: l.description ?? null,
+            quantity: l.quantity,
+            unit: l.unit ?? 'sheet',
+            pallet_qty: l.pallet_qty ?? null,
+        });
     }
     return { id: Number(info.lastInsertRowid), our_reference };
 });
 
 const getOrdersStmt = db.prepare('SELECT * FROM orders WHERE exact_contact_id = ? ORDER BY created_at DESC, id DESC');
-const getLinesStmt = db.prepare('SELECT article_code, description, quantity FROM order_lines WHERE order_id = ?');
+const getLinesStmt = db.prepare('SELECT article_code, description, quantity, unit, pallet_qty FROM order_lines WHERE order_id = ?');
 function getOrdersForContact(contactId) {
     return getOrdersStmt.all(contactId).map((o) => ({ ...o, lines: getLinesStmt.all(o.id) }));
 }
@@ -179,9 +198,77 @@ function getAllOrders() {
     return getAllOrdersStmt.all().map((o) => ({ ...o, lines: getLinesStmt.all(o.id) }));
 }
 
+// --- Forecast ---
+// One row per (customer, article, year, month). Saving replaces the whole grid for
+// that customer+year in one transaction: simpler and safer than diffing, since the
+// client always sends the complete grid it is editing.
+const getForecastStmt = db.prepare(
+    'SELECT article_code, month, quantity FROM forecast WHERE exact_contact_id = ? AND fiscal_year = ? ORDER BY article_code, month'
+);
+function getForecast(contactId, year) {
+    return getForecastStmt.all(contactId, year);
+}
+
+const deleteForecastYearStmt = db.prepare('DELETE FROM forecast WHERE exact_contact_id = ? AND fiscal_year = ?');
+const insertForecastStmt = db.prepare(`
+    INSERT INTO forecast (exact_contact_id, article_code, fiscal_year, month, quantity, updated_at)
+    VALUES (@exact_contact_id, @article_code, @fiscal_year, @month, @quantity, @updated_at)
+`);
+const saveForecast = db.transaction((contactId, year, cells) => {
+    deleteForecastYearStmt.run(contactId, year);
+    const updated_at = Date.now();
+    for (const c of cells) {
+        insertForecastStmt.run({
+            exact_contact_id: contactId,
+            article_code: c.article_code,
+            fiscal_year: year,
+            month: c.month,
+            quantity: c.quantity,
+            updated_at,
+        });
+    }
+});
+
+// What the customer has actually ordered, bucketed by the month they asked it to
+// ship. Shown alongside the forecast so they can see their real pattern and copy it.
+// desired_ship_date is stored as 'YYYY-MM-DD' text, hence the substr slicing.
+const getOrderedByMonthStmt = db.prepare(`
+    SELECT ol.article_code,
+           CAST(substr(o.desired_ship_date, 6, 2) AS INTEGER) AS month,
+           SUM(ol.quantity) AS quantity
+    FROM orders o
+    JOIN order_lines ol ON ol.order_id = o.id
+    WHERE o.exact_contact_id = ?
+      AND substr(o.desired_ship_date, 1, 4) = ?
+    GROUP BY ol.article_code, month
+    ORDER BY ol.article_code, month
+`);
+function getOrderedByMonth(contactId, year) {
+    return getOrderedByMonthStmt.all(contactId, String(year));
+}
+
+// Every customer's forecast for a year (admin overview), joined to the cached
+// company name so the admin page can group by customer.
+const getAllForecastsStmt = db.prepare(`
+    SELECT f.exact_contact_id, f.article_code, f.month, f.quantity, f.updated_at,
+           p.company_name, p.full_name, p.email
+    FROM forecast f
+    LEFT JOIN customer_profile p ON p.exact_contact_id = f.exact_contact_id
+    WHERE f.fiscal_year = ?
+    ORDER BY p.company_name, f.article_code, f.month
+`);
+function getAllForecasts(year) {
+    return getAllForecastsStmt.all(year);
+}
+
 const setEmailStatusStmt = db.prepare('UPDATE orders SET email_status = ? WHERE id = ?');
 function setOrderEmailStatus(id, status) {
     setEmailStatusStmt.run(status, id);
 }
 
-module.exports = { db, nextSequence, upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus };
+module.exports = {
+    db, nextSequence,
+    upsertCustomerProfile, getCustomerProfile,
+    createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus,
+    getForecast, saveForecast, getAllForecasts, getOrderedByMonth,
+};

@@ -85,6 +85,10 @@ module.exports = {
     // itemFieldsCache boot warm is a per-item Exact burst that can 429-starve login
     // on cold start; disable in dev with WARM_ITEM_FIELDS=false. Unset = on (prod).
     warmItemFields: process.env.WARM_ITEM_FIELDS !== 'false',
+    // Forecast (Batch 5) is built but not yet approved by Ad: hidden unless
+    // FORECAST_ENABLED=true. Read at boot (a pm2 restart flips it); the client learns
+    // it as a JWT claim, so a session sees the change at its next login (tokens last 1h).
+    forecastEnabled: process.env.FORECAST_ENABLED === 'true',
     // Microsoft Graph mail (order notifications). Optional: if unset, email is
     // skipped and orders still persist (the record is the source of truth).
     graph: {

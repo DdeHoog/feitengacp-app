@@ -3,8 +3,11 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 // The in-progress order. Lives only in the browser (localStorage) until the
 // customer submits it on the Cart page — no server-side cart. Every ordering
 // entry point (stock table, later a quick-order page or "reorder") funnels here.
+// Line quantities are PALLETS (since 2026-09-22); the server derives the sheets.
 const CartContext = createContext(null);
-const STORAGE_KEY = 'orderCart';
+// Key bumped when quantities changed from sheets to pallets: a cart saved before
+// that would otherwise reappear with sheet counts read as pallets.
+const STORAGE_KEY = 'orderCart.v2';
 
 const readStored = () => {
     try {
@@ -57,7 +60,10 @@ export const CartProvider = ({ children }) => {
 
     const clear = useCallback(() => setLines([]), []);
 
-    const value = { lines, addItem, addMany, replaceItems, setQty, removeItem, clear, count: lines.length };
+    // totalPallets feeds the per-order cap (stock table refuses to add past it, the
+    // cart page blocks submit); the server enforces the same limit.
+    const totalPallets = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+    const value = { lines, addItem, addMany, replaceItems, setQty, removeItem, clear, count: lines.length, totalPallets };
     return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 };
 
