@@ -17,6 +17,7 @@ const exactClient = require('./exactClient');
 
 const fields = new Map();      // ItemId (GUID) -> mapped fields object
 const retry = new Map();       // ItemId -> {ItemId, ItemCode} whose fetch failed; retried on the next poll
+const MISSING_PER_POLL = 20;   // newly-visible items fetched per poll — bounded so a big batch can't 429-burst
 let lastItemsTimestamp = 0;    // Items sync high-water mark for delta detection
 let lastWarmAt = null;
 let lastError = null;
@@ -115,10 +116,12 @@ async function warm(getAccessToken, getVisibleItems) {
     }
 }
 
-// Refresh only items changed since the last check (via Items sync delta), and
-// only those we actually track (i.e. visible), plus any earlier fetch failures.
-// Cheap: usually zero changes.
-async function refreshChanged(getAccessToken) {
+// Per poll: refetch (a) tracked items the Items sync delta reports as changed, (b) visible
+// items that have no fields yet — an article whose stock arrived after boot wasn't in the
+// warm, and without this it would show "—" / order as t.b.c. until the next restart
+// (the old JSON-map fallback used to mask exactly that) — and (c) earlier failures.
+// `getVisibleItems` is the same injected getter the warm uses. Cheap: usually nothing.
+async function refreshChanged(getAccessToken, getVisibleItems) {
     if (warming || !ready) return;
     try {
         const accessToken = await getAccessToken();
@@ -131,14 +134,18 @@ async function refreshChanged(getAccessToken) {
         }
 
         const tracked = changed.filter((it) => fields.has(it.ID)).map((it) => ({ ItemId: it.ID, ItemCode: it.Code }));
-        const items = [...new Map([...tracked, ...retry.values()].map((it) => [it.ItemId, it])).values()];
+        const missing = (getVisibleItems ? getVisibleItems() || [] : [])
+            .filter((it) => it.ItemId && !fields.has(it.ItemId) && !retry.has(it.ItemId))
+            .slice(0, MISSING_PER_POLL)
+            .map((it) => ({ ItemId: it.ItemId, ItemCode: it.ItemCode }));
+        const items = [...new Map([...tracked, ...missing, ...retry.values()].map((it) => [it.ItemId, it])).values()];
         if (items.length === 0) {
             if (changed.length > 0) logger.debug({ changed: changed.length }, 'itemFieldsCache: changes not in visible set');
             return;
         }
         const { ok, failed } = await fetchForItems(accessToken, items);
         lastError = null;
-        logger.info({ changed: changed.length, refetched: items.length, ok, failed, retryPending: retry.size }, 'itemFieldsCache refreshed changed items');
+        logger.info({ changed: changed.length, tracked: tracked.length, missing: missing.length, refetched: items.length, ok, failed, retryPending: retry.size }, 'itemFieldsCache refreshed changed items');
     } catch (err) {
         lastError = err.message;
         logger.error({ err: err.message }, 'itemFieldsCache refresh failed');

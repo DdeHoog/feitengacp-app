@@ -25,7 +25,7 @@ The combined repo is the canonical source for both **local development** and **p
 | Forecast: monthly grid per article, plan vs. actual orders | ✅ built (dev) |
 | Admin: customer login status, forecasts per customer | planned |
 | Quick-order page, admin resend for failed e-mails | planned |
-| Nightly SQLite backup | planned |
+| Nightly SQLite backup (`npm run backup`; cron on the VPS, rotated, integrity-checked) | ✅ script built |
 
 ---
 

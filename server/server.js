@@ -896,7 +896,7 @@
         // The per-item warm burst can 429-starve interactive logins on cold start;
         // gated so dev can turn it off. Phase-1/debug-only, so prod-unset = on.
         onReady: () => { if (config.warmItemFields) itemFieldsCache.warm(getAccessToken, getVisibleItems); },
-        onPoll: () => { if (config.warmItemFields) itemFieldsCache.refreshChanged(getAccessToken); },
+        onPoll: () => { if (config.warmItemFields) itemFieldsCache.refreshChanged(getAccessToken, getVisibleItems); },
     });
 
     // Start the server
