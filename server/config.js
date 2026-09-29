@@ -95,6 +95,15 @@ module.exports = {
         tenantId: process.env.GRAPH_TENANT_ID || null,
         clientId: process.env.GRAPH_CLIENT_ID || null,
         clientSecret: process.env.GRAPH_CLIENT_SECRET || null,
+        // Certificate credential — preferred over the secret once its public half is on the
+        // app registration: we choose the lifetime and the private key never leaves the VPS.
+        // Both set → the mailer signs a client assertion instead of sending the secret.
+        certKeyPath: process.env.GRAPH_CERT_KEY_PATH ? path.resolve(process.env.GRAPH_CERT_KEY_PATH) : null,
+        certPath: process.env.GRAPH_CERT_PATH ? path.resolve(process.env.GRAPH_CERT_PATH) : null,
+        // When the client secret expires (YYYY-MM-DD, from the Entra portal). Entra never
+        // tells the app, so the log / admin page can only warn if we are told. A certificate
+        // carries its own expiry.
+        secretExpires: process.env.GRAPH_SECRET_EXPIRES || null,
         mailFrom: process.env.MAIL_FROM || null,
         mailTo: process.env.MAIL_TO || null,
     },

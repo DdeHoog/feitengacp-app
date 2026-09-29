@@ -4,6 +4,27 @@ import { useAuth } from '../authContext';
 import apiClient from '../api';
 import { sheetsFor, sheetsOfLine } from '../quantities';
 
+// One line on the order-mail credential (certificate or client secret). Entra makes it
+// expire and gives no warning of its own, so this is where an admin sees it coming.
+function MailStatus({ mail }) {
+    if (!mail.enabled) return <p className="mb-4 text-sm text-gray-500">Order e-mail is not configured on this server.</p>;
+    const d = mail.daysLeft;
+    const tone = d == null ? 'text-gray-600' : d < 14 ? 'text-red-700 font-semibold' : d < 60 ? 'text-amber-700' : 'text-gray-500';
+    const when = mail.expiresAt == null
+        ? 'expiry date unknown — set GRAPH_SECRET_EXPIRES on the server'
+        : d < 0
+            ? `EXPIRED on ${mail.expiresAt} — order e-mails are failing`
+            : `valid until ${mail.expiresAt} (${d} day${d === 1 ? '' : 's'})`;
+    return (
+        <div className="mb-4 text-sm">
+            <p className={tone}>Order e-mail credential: {mail.method} · {when}</p>
+            {mail.lastError && (
+                <p className="text-red-700">Last mail error ({new Date(mail.lastError.at).toLocaleString()}): {mail.lastError.message}</p>
+            )}
+        </div>
+    );
+}
+
 // Admin overview. Batch 6 slice pulled forward: submitted orders per customer +
 // a CSV export, so Ad can process orders from here until the email (4b) lands.
 // (Login-status + forecasts join this page later.)
@@ -13,12 +34,16 @@ function AdminPage() {
     const [error, setError] = useState(null);
     const [customer, setCustomer] = useState('all');
     const [openId, setOpenId] = useState(null);
+    const [mail, setMail] = useState(null); // order-mail credential health
 
     useEffect(() => {
         if (!isAdmin) return;
         apiClient.get('/api/admin/orders')
             .then((res) => setOrders(res.data))
             .catch((err) => setError(err.response?.data?.error || 'Failed to load orders.'));
+        apiClient.get('/api/admin/mail-status')
+            .then((res) => setMail(res.data))
+            .catch(() => setMail(null));
     }, [isAdmin]);
 
     const companies = useMemo(
@@ -79,6 +104,7 @@ function AdminPage() {
     return (
         <div className="p-6 max-w-4xl">
             <h1 className="text-2xl font-bold text-[#004EA2] mb-4">Admin — orders</h1>
+            {mail && <MailStatus mail={mail} />}
 
             {error && <p className="text-red-600">{error}</p>}
             {!error && orders === null && <p className="text-gray-600">Loading…</p>}

@@ -5,7 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const config = require('./config');
 const logger = require('./logger');
 const { sheetsForLine, ASSUMED_PALLET_QTY } = require('./quantities');
@@ -20,24 +22,99 @@ try {
     logger.warn({ path: BANNER_PATH }, 'Mail banner not found — sending without it');
 }
 
-const { tenantId, clientId, clientSecret, mailFrom, mailTo } = config.graph;
-const enabled = !!(tenantId && clientId && clientSecret && mailFrom && mailTo);
+const { tenantId, clientId, clientSecret, certKeyPath, certPath, secretExpires, mailFrom, mailTo } = config.graph;
+
+// === Credential ===
+// Client-credentials flow: the app authenticates ITSELF on every token request, so there
+// is no refresh token — the credential is the long-lived thing, and Entra makes it expire.
+// Preferred: a certificate we generated (lifetime is ours, private key stays on the VPS),
+// presented as a signed JWT "client assertion". Fallback: the client secret Novuss issued.
+let cert = null; // { key, x5t, validTo }
+if (certKeyPath && certPath) {
+    try {
+        const x509 = new crypto.X509Certificate(fs.readFileSync(certPath));
+        cert = {
+            key: fs.readFileSync(certKeyPath, 'utf8'),
+            // Entra matches the certificate by its SHA-1 thumbprint in the JWT header (base64url).
+            x5t: Buffer.from(x509.fingerprint.replace(/:/g, ''), 'hex').toString('base64url'),
+            validTo: new Date(x509.validTo),
+        };
+    } catch (err) {
+        logger.error({ err: err.message, certPath, certKeyPath }, 'Graph certificate unusable — falling back to the client secret');
+    }
+}
+const method = cert ? 'certificate' : (clientSecret ? 'secret' : null);
+const enabled = !!(tenantId && clientId && method && mailFrom && mailTo);
+
+const parseDate = (s) => { const d = s ? new Date(s) : null; return d && !Number.isNaN(d.getTime()) ? d : null; };
+const expiresAt = cert ? cert.validTo : parseDate(secretExpires);
+const daysLeft = () => (expiresAt ? Math.floor((expiresAt.getTime() - Date.now()) / 86_400_000) : null);
+
+let lastError = null; // { at, message } of the most recent failed token request or send
+
+// What the admin page shows: which credential, when it runs out, what last went wrong.
+function status() {
+    return { enabled, method, expiresAt: expiresAt ? expiresAt.toISOString().slice(0, 10) : null, daysLeft: daysLeft(), lastError };
+}
+
+// Boot-time reminder — the one moment someone reliably reads the log.
+if (enabled) {
+    const days = daysLeft();
+    const ctx = { method, expiresAt: status().expiresAt, daysLeft: days };
+    if (days == null) logger.warn(ctx, 'Graph mail credential expiry unknown — set GRAPH_SECRET_EXPIRES or switch to a certificate');
+    else if (days < 0) logger.error(ctx, 'Graph mail credential EXPIRED — order e-mails fail until it is renewed');
+    else if (days <= 30) logger.warn(ctx, 'Graph mail credential expires soon');
+    else logger.info(ctx, 'Graph mail credential');
+}
+
+// Signed JWT proving we hold the certificate's private key (RFC 7523 / Entra "client
+// assertion"). Short-lived and single-use (jti) — Entra rejects replays.
+function clientAssertion() {
+    const now = Math.floor(Date.now() / 1000);
+    return jwt.sign(
+        { aud: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, iss: clientId, sub: clientId, jti: crypto.randomUUID(), nbf: now, exp: now + 300 },
+        cert.key,
+        { algorithm: 'RS256', header: { x5t: cert.x5t } }
+    );
+}
+
+// Entra error codes worth naming plainly (the raw description is a wall of text).
+const KNOWN_ERRORS = [
+    ['AADSTS7000222', 'client secret has expired'],
+    ['AADSTS7000215', 'client secret is invalid (wrong value, or it was rotated)'],
+    ['AADSTS700027', 'certificate not accepted (thumbprint unknown to the app registration, or bad signature)'],
+    ['AADSTS700024', 'client assertion expired (server clock skew?)'],
+];
+function recordError(err, what) {
+    const desc = err.response?.data?.error_description || err.response?.data?.error?.message || err.message || String(err);
+    const known = KNOWN_ERRORS.find(([code]) => desc.includes(code));
+    const message = known ? `${known[1]} (${known[0]})` : desc.split(/\r?\n/)[0].slice(0, 300);
+    lastError = { at: new Date().toISOString(), message };
+    logger.error({ what, method, message }, 'Graph mail failed');
+}
 
 let cachedToken = null; // { token, expiresAt }
 
 async function getToken() {
     if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.token;
-    const body = new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        scope: 'https://graph.microsoft.com/.default',
-        grant_type: 'client_credentials',
-    });
-    const res = await axios.post(
-        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-        body.toString(),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 }
-    );
+    const body = new URLSearchParams({ client_id: clientId, scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials' });
+    if (cert) {
+        body.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        body.set('client_assertion', clientAssertion());
+    } else {
+        body.set('client_secret', clientSecret);
+    }
+    let res;
+    try {
+        res = await axios.post(
+            `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+            body.toString(),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 }
+        );
+    } catch (err) {
+        recordError(err, 'token');
+        throw err;
+    }
     cachedToken = { token: res.data.access_token, expiresAt: Date.now() + res.data.expires_in * 1000 };
     return cachedToken.token;
 }
@@ -106,6 +183,16 @@ function renderHtml(order, lines, { heading, intro, signoff = false } = {}) {
 
 async function send(to, subject, html) {
     const token = await getToken();
+    try {
+        await sendMail(token, to, subject, html);
+        lastError = null;
+    } catch (err) {
+        recordError(err, 'send');
+        throw err;
+    }
+}
+
+async function sendMail(token, to, subject, html) {
     await axios.post(
         `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailFrom)}/sendMail`,
         {
@@ -164,4 +251,7 @@ async function sendCustomerCopy(order, lines) {
     return true;
 }
 
-module.exports = { sendOrderEmail, sendCustomerCopy, enabled, renderHtml /* exported for tests */ };
+module.exports = {
+    sendOrderEmail, sendCustomerCopy, enabled, status,
+    renderHtml, _clientAssertion: () => (cert ? clientAssertion() : null), // exported for tests
+};

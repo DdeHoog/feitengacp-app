@@ -630,6 +630,11 @@
         res.json({ email: req.user.email, name: req.user.name, isAdmin: true });
     });
 
+    // Order-mail credential health (which credential, expiry, last error) for the admin page.
+    app.get('/api/admin/mail-status', authenticateToken, requireAdmin, (req, res) => {
+        res.json(mailer.status());
+    });
+
     // All submitted orders across customers (for the admin overview + CSV export).
     app.get('/api/admin/orders', authenticateToken, requireAdmin, (req, res) => {
         res.json(getAllOrders());
