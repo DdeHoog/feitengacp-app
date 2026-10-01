@@ -25,16 +25,117 @@ function MailStatus({ mail }) {
     );
 }
 
-// Admin overview. Batch 6 slice pulled forward: submitted orders per customer +
-// a CSV export, so Ad can process orders from here until the email (4b) lands.
-// (Login-status + forecasts join this page later.)
+const RECENT = 10; // what "all customers" shows: the newest handful — pick a customer for the rest
+const PAGE = 25;   // rows added per "Show more"
+
+// "3 days ago" for a timestamp — precision falls off with age on purpose; the exact
+// time sits in the cell's tooltip.
+const ago = (ms) => {
+    if (!ms) return '—';
+    const mins = Math.floor((Date.now() - ms) / 60000);
+    if (mins < 60) return mins <= 1 ? 'just now' : `${mins} min ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return days === 1 ? 'yesterday' : `${days} days ago`;
+    const months = Math.floor(days / 30);
+    return months === 1 ? 'a month ago' : `${months} months ago`;
+};
+
+// Who has logged in and how recently: one row per customer (a profile row is written at
+// login), newest login first. Ad wants the LAST login per customer, not a history, so that
+// is all we store. The list only ever grows, so it opens with the most recent handful and
+// the rest is reached by typing (company / contact / e-mail / debtor #) rather than by
+// scrolling; "Show all" exists for the occasional full scan (inactive customers sit at
+// the bottom). A row with orders filters the orders tab to that company.
+function CustomersTable({ customers, onPick }) {
+    const [search, setSearch] = useState('');
+    const [showAll, setShowAll] = useState(false);
+    const exact = (ms) => (ms ? new Date(ms).toLocaleString() : undefined);
+    const term = search.trim().toLowerCase();
+    const matches = term
+        ? customers.filter((c) => [c.company_name, c.full_name, c.email, c.debtor_number]
+            .some((v) => String(v || '').toLowerCase().includes(term)))
+        : customers;
+    const rows = term || showAll ? matches : matches.slice(0, RECENT);
+    return (
+        <div className="mb-6">
+            <div className="flex flex-wrap items-center gap-3 mb-2">
+                <h2 className="text-lg font-semibold text-gray-800">
+                    Logins <span className="text-sm font-normal text-gray-500">({customers.length} customer{customers.length !== 1 ? 's have' : ' has'} logged in)</span>
+                </h2>
+                {customers.length > RECENT && (
+                    <input
+                        type="search"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Find a customer…"
+                        className="border border-gray-300 rounded px-2 py-1 text-sm w-56"
+                        aria-label="Find a customer"
+                    />
+                )}
+            </div>
+            {customers.length === 0 && <p className="text-sm text-gray-600">No customer has logged in yet.</p>}
+            {customers.length > 0 && rows.length === 0 && <p className="text-sm text-gray-600">No customer matches “{search.trim()}”.</p>}
+            {rows.length > 0 && (
+                <div className="overflow-x-auto rounded-md border border-gray-200">
+                    <table className="min-w-full text-sm">
+                        <thead>
+                            <tr className="text-left text-gray-500 border-b bg-gray-50">
+                                <th className="py-2 px-3">Company</th>
+                                <th className="py-2 px-3">Contact</th>
+                                <th className="py-2 px-3">E-mail</th>
+                                <th className="py-2 px-3">Last login</th>
+                                <th className="py-2 px-3 text-right">Orders</th>
+                                <th className="py-2 px-3">Last order</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((c) => (
+                                <tr
+                                    key={c.exact_contact_id}
+                                    className={`border-b border-gray-100 ${c.orders > 0 ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                                    onClick={() => c.orders > 0 && onPick(c.company_name)}
+                                    title={c.orders > 0 ? "Show this customer's orders" : undefined}
+                                >
+                                    <td className="py-2 px-3 font-medium text-gray-900">
+                                        {c.company_name || '—'}
+                                        {c.debtor_number && <span className="font-normal text-gray-400"> · {c.debtor_number}</span>}
+                                    </td>
+                                    <td className="py-2 px-3 text-gray-700">{c.full_name || '—'}</td>
+                                    <td className="py-2 px-3 text-gray-700">{c.email || '—'}</td>
+                                    <td className="py-2 px-3 text-gray-700 whitespace-nowrap" title={exact(c.last_login)}>{ago(c.last_login)}</td>
+                                    <td className="py-2 px-3 text-right">{c.orders}</td>
+                                    <td className="py-2 px-3 text-gray-700 whitespace-nowrap" title={exact(c.last_order_at)}>{ago(c.last_order_at)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+            {!term && !showAll && customers.length > RECENT && (
+                <p className="mt-3 text-sm text-gray-600">
+                    Showing the {RECENT} most recent logins — type above to find a customer, or{' '}
+                    <button onClick={() => setShowAll(true)} className="text-[#004EA2] underline">show all {customers.length}</button>.
+                </p>
+            )}
+        </div>
+    );
+}
+
+// Admin overview (Batch 6): mail-credential health, customers + last login, and the
+// submitted orders per customer with CSV export. Forecasts per customer join once the
+// forecast itself is switched on.
 function AdminPage() {
     const { isAuthReady, isAuthenticated, isAdmin } = useAuth();
     const [orders, setOrders] = useState(null);
     const [error, setError] = useState(null);
     const [customer, setCustomer] = useState('all');
     const [openId, setOpenId] = useState(null);
-    const [mail, setMail] = useState(null); // order-mail credential health
+    const [mail, setMail] = useState(null);           // order-mail credential health
+    const [customers, setCustomers] = useState(null); // everyone who has logged in
+    const [tab, setTab] = useState('orders');         // Ad's daily view first; customers on demand
+    const [shown, setShown] = useState(RECENT);       // orders rendered so far (newest first)
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -44,6 +145,9 @@ function AdminPage() {
         apiClient.get('/api/admin/mail-status')
             .then((res) => setMail(res.data))
             .catch(() => setMail(null));
+        apiClient.get('/api/admin/customers')
+            .then((res) => setCustomers(res.data))
+            .catch(() => setCustomers(null));
     }, [isAdmin]);
 
     const companies = useMemo(
@@ -101,20 +205,43 @@ function AdminPage() {
 
     const dateStamp = () => new Date().toISOString().slice(0, 10);
 
+    // A customer row → that company's orders, from the top.
+    const pickCustomer = (company) => { setCustomer(company); setShown(PAGE); setTab('orders'); };
+
     return (
         <div className="p-6 max-w-4xl">
-            <h1 className="text-2xl font-bold text-[#004EA2] mb-4">Admin — orders</h1>
+            <h1 className="text-2xl font-bold text-[#004EA2] mb-4">Admin</h1>
             {mail && <MailStatus mail={mail} />}
 
-            {error && <p className="text-red-600">{error}</p>}
-            {!error && orders === null && <p className="text-gray-600">Loading…</p>}
+            {/* Tabs keep the page one screen tall as orders and customers accumulate. */}
+            <div className="flex gap-2 mb-4 border-b border-gray-200">
+                {[
+                    ['orders', `Orders${orders ? ` (${orders.length})` : ''}`],
+                    ['customers', `Logins${customers ? ` (${customers.length})` : ''}`],
+                ].map(([id, label]) => (
+                    <button
+                        key={id}
+                        onClick={() => setTab(id)}
+                        className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px ${tab === id ? 'border-[#003F84] text-[#003F84]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
 
-            {!error && orders !== null && (
+            {tab === 'customers' && (
+                customers ? <CustomersTable customers={customers} onPick={pickCustomer} /> : <p className="text-gray-600">Loading…</p>
+            )}
+
+            {tab === 'orders' && error && <p className="text-red-600">{error}</p>}
+            {tab === 'orders' && !error && orders === null && <p className="text-gray-600">Loading…</p>}
+
+            {tab === 'orders' && !error && orders !== null && (
                 <>
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                         <label className="text-sm text-gray-700">
                             Customer:{' '}
-                            <select value={customer} onChange={(e) => setCustomer(e.target.value)} className="border border-gray-300 rounded px-2 py-1">
+                            <select value={customer} onChange={(e) => { setCustomer(e.target.value); setShown(e.target.value === 'all' ? RECENT : PAGE); }} className="border border-gray-300 rounded px-2 py-1">
                                 <option value="all">All customers</option>
                                 {companies.map((c) => <option key={c} value={c}>{c}</option>)}
                             </select>
@@ -123,16 +250,17 @@ function AdminPage() {
                         <button
                             onClick={() => exportOrders(filtered, `feitengacp-orders-${dateStamp()}.csv`)}
                             disabled={filtered.length === 0}
+                            title="Every order in the current filter — not only the ones displayed below"
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#003F84] text-white text-sm font-semibold shadow hover:bg-[#00457F] disabled:opacity-60"
                         >
-                            <span className="text-base leading-none">&#x2B07;</span> Export all shown (CSV)
+                            <span className="text-base leading-none">&#x2B07;</span> Export {filtered.length} order{filtered.length !== 1 ? 's' : ''} (CSV)
                         </button>
                     </div>
 
                     {filtered.length === 0 && <p className="text-gray-600">No orders yet.</p>}
 
                     <div className="space-y-3">
-                        {filtered.map((o) => (
+                        {filtered.slice(0, shown).map((o) => (
                             <div key={o.id} className="border border-gray-200 rounded-md">
                                 <div className="flex items-center justify-between px-4 py-3">
                                     <div className="text-sm">
@@ -187,6 +315,17 @@ function AdminPage() {
                             </div>
                         ))}
                     </div>
+                    {filtered.length > shown && (
+                        <div className="mt-4 flex items-center gap-3 text-sm text-gray-600">
+                            <span>
+                                Showing the newest {shown} of {filtered.length}
+                                {customer === 'all' && ' — pick a customer above to see their full history'}
+                            </span>
+                            <button onClick={() => setShown(shown + PAGE)} className="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 font-semibold hover:bg-gray-50">
+                                Show {Math.min(PAGE, filtered.length - shown)} more
+                            </button>
+                        </div>
+                    )}
                 </>
             )}
         </div>

@@ -22,8 +22,9 @@ The combined repo is the canonical source for both **local development** and **p
 | Order quantities in **pallets** (max 50 per order), sheet equivalent derived from the Exact pallet size and shown on the confirmation | ✅ built (dev) |
 | Order e-mail to `sales@` via Microsoft Graph | ✅ live |
 | Admin area: orders per customer + CSV export | ✅ live |
-| Forecast: monthly grid per article, plan vs. actual orders | ✅ built (dev) |
-| Admin: customer login status, forecasts per customer | planned |
+| Forecast: monthly grid per article, plan vs. actual orders | ✅ built, hidden behind `FORECAST_ENABLED` |
+| Admin: logins per customer (who, how recently, order count) | ✅ built |
+| Admin: forecasts per customer | planned (with the forecast) |
 | Quick-order page, admin resend for failed e-mails | planned |
 | Nightly SQLite backup (`npm run backup`; cron on the VPS, rotated, integrity-checked) | ✅ script built |
 

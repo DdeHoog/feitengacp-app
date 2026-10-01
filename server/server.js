@@ -3,7 +3,7 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
-    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecast, saveForecast, getAllForecasts, getOrderedByMonth } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecast, saveForecast, getAllForecasts, getOrderedByMonth, getCustomers } = require('./db'); // requiring opens SQLite + runs migrations at boot
     const { MAX_PALLETS_PER_ORDER } = require('./quantities');
     const mailer = require('./mailer');
 
@@ -633,6 +633,11 @@
     // Order-mail credential health (which credential, expiry, last error) for the admin page.
     app.get('/api/admin/mail-status', authenticateToken, requireAdmin, (req, res) => {
         res.json(mailer.status());
+    });
+
+    // Who uses the portal: every customer that has logged in, newest first (Batch 6 slice).
+    app.get('/api/admin/customers', authenticateToken, requireAdmin, (req, res) => {
+        res.json(getCustomers());
     });
 
     // All submitted orders across customers (for the admin overview + CSV export).

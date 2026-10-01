@@ -152,6 +152,20 @@ function getCustomerProfile(contactId) {
     return getProfileStmt.get(contactId) || null;
 }
 
+// --- Customers (admin) ---
+// Everyone who has ever logged in — a profile row is written at login — newest login
+// first, with their order count and last order: the admin "who uses the portal" view.
+const getCustomersStmt = db.prepare(`
+    SELECT p.exact_contact_id, p.company_name, p.debtor_number, p.full_name, p.email, p.last_login,
+           (SELECT COUNT(*)        FROM orders o WHERE o.exact_contact_id = p.exact_contact_id) AS orders,
+           (SELECT MAX(created_at) FROM orders o WHERE o.exact_contact_id = p.exact_contact_id) AS last_order_at
+    FROM customer_profile p
+    ORDER BY p.last_login DESC
+`);
+function getCustomers() {
+    return getCustomersStmt.all();
+}
+
 // --- Orders ---
 const insertOrderStmt = db.prepare(`
     INSERT INTO orders
@@ -268,7 +282,7 @@ function setOrderEmailStatus(id, status) {
 
 module.exports = {
     db, nextSequence,
-    upsertCustomerProfile, getCustomerProfile,
+    upsertCustomerProfile, getCustomerProfile, getCustomers,
     createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus,
     getForecast, saveForecast, getAllForecasts, getOrderedByMonth,
 };
