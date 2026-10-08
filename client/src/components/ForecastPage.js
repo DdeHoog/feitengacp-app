@@ -14,8 +14,9 @@ const withRow = (grid, code, months) => {
 };
 
 // Customers plan expected volumes per article per month, a calendar year at a time
-// (boekjaar = Jan–Dec). Grid state is `{ [article_code]: { [month]: qty } }`; saving
-// sends the whole grid and the server replaces that year.
+// (boekjaar = Jan–Dec), in PALLETS — the same unit as ordering since 2026-09-22. Grid
+// state is `{ [article_code]: { [month]: pallets } }`; saving sends the whole grid and
+// the server replaces that year.
 function ForecastPage() {
     const { isAuthReady, isAuthenticated, features } = useAuth();
     const { products } = useProducts();
@@ -215,7 +216,7 @@ function ForecastPage() {
         <div className="p-4">
             <h1 className="text-2xl font-bold text-[#004EA2] mb-1">Forecast</h1>
             <p className="text-gray-600 text-sm mb-4">
-                Let us know what you expect to need per month. Fill in one month, press → to copy it across the year, then adjust where needed.
+                Let us know how many pallets you expect to need per month. Fill in one month, press → to copy it across the year, then adjust where needed.
             </p>
 
             <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -274,7 +275,7 @@ function ForecastPage() {
             {!loading && rows.length > 0 && (
                 <>
                     <p className="text-xs text-gray-500 mb-2">
-                        Grey figures in brackets are what you already ordered for that month.
+                        Grey figures in brackets are the pallets you already ordered for that month.
                         Use <strong>↓</strong> to copy that pattern into your forecast, or fill one month and press <strong>→</strong> to repeat it across the year. Everything stays editable.
                     </p>
 

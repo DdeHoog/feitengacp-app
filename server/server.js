@@ -5,6 +5,7 @@
     const itemFieldsCache = require('./itemFieldsCache');
     const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecast, saveForecast, getAllForecasts, getOrderedByMonth, getCustomers } = require('./db'); // requiring opens SQLite + runs migrations at boot
     const { MAX_PALLETS_PER_ORDER } = require('./quantities');
+    const { todayISO } = require('./dates');
     const mailer = require('./mailer');
 
     const express = require('express');
@@ -704,6 +705,10 @@
         if (!phoneNum) return res.status(400).json({ error: 'A phone number is required.' });
         if (!deliveryAddr) return res.status(400).json({ error: 'A delivery address is required.' });
         if (!shipDate) return res.status(400).json({ error: 'Desired shipping date is required.' });
+        // Ad (2026-10-07): a shipping date in the past slipped through (2026-02-06). Today is
+        // allowed; the comparison is on ISO strings, so the format check comes first.
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(shipDate) || Number.isNaN(Date.parse(shipDate))) return res.status(400).json({ error: 'Desired shipping date is not a valid date.' });
+        if (shipDate < todayISO()) return res.status(400).json({ error: 'The desired shipping date cannot be in the past.' });
 
         const ref = String(customer_reference || '').trim();
         if (ref && (ref.length > 20 || !/^[a-zA-Z0-9]+$/.test(ref))) {

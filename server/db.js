@@ -243,9 +243,11 @@ const saveForecast = db.transaction((contactId, year, cells) => {
     }
 });
 
-// What the customer has actually ordered, bucketed by the month they asked it to
-// ship. Shown alongside the forecast so they can see their real pattern and copy it.
-// desired_ship_date is stored as 'YYYY-MM-DD' text, hence the substr slicing.
+// What the customer has actually ordered, in PALLETS, bucketed by the month they asked
+// it to ship. Shown alongside the forecast so they can see their real pattern and copy
+// it. Only pallet-unit lines count: the handful of orders placed in sheets before
+// 2026-09-22 would otherwise show as hundreds of "pallets". desired_ship_date is stored
+// as 'YYYY-MM-DD' text, hence the substr slicing.
 const getOrderedByMonthStmt = db.prepare(`
     SELECT ol.article_code,
            CAST(substr(o.desired_ship_date, 6, 2) AS INTEGER) AS month,
@@ -253,6 +255,7 @@ const getOrderedByMonthStmt = db.prepare(`
     FROM orders o
     JOIN order_lines ol ON ol.order_id = o.id
     WHERE o.exact_contact_id = ?
+      AND ol.unit = 'pallet'
       AND substr(o.desired_ship_date, 1, 4) = ?
     GROUP BY ol.article_code, month
     ORDER BY ol.article_code, month

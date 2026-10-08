@@ -5,6 +5,7 @@ import { useCart } from '../cartContext';
 import useProducts from '../hooks/useProducts';
 import apiClient from '../api';
 import { MAX_PALLETS_PER_ORDER, ASSUMED_PALLET_QTY, formatSheets, TBC_HINT } from '../quantities';
+import { todayISO } from '../dates';
 
 // Review + submit the in-progress order. Company/debtor#/email come from Exact
 // (read-only identity); the customer confirms/edits name, phone, delivery address
@@ -57,6 +58,7 @@ function CartPage() {
         if (!phone.trim()) errs.phone = 'Please enter a phone number.';
         if (!deliveryAddr.trim()) errs.deliveryAddr = 'Please enter a delivery address.';
         if (!shipDate) errs.shipDate = 'Please choose a desired shipping date.';
+        else if (shipDate < todayISO()) errs.shipDate = 'The shipping date cannot be in the past.';
         if (reference && (reference.length > 20 || !/^[a-zA-Z0-9]+$/.test(reference))) {
             errs.reference = 'Alphanumeric, max 20 characters.';
         }
@@ -200,7 +202,7 @@ function CartPage() {
                 </label>
                 <label className="text-sm text-gray-700">
                     <span className="block mb-1">Desired shipping date<Req /></span>
-                    <input type="date" value={shipDate} onChange={(e) => setShipDate(e.target.value)} className={inputCls('shipDate')} />
+                    <input type="date" min={todayISO()} value={shipDate} onChange={(e) => setShipDate(e.target.value)} className={inputCls('shipDate')} />
                     {errText('shipDate')}
                 </label>
             </div>

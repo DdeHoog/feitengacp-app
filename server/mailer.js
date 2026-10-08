@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const config = require('./config');
 const logger = require('./logger');
 const { sheetsForLine, ASSUMED_PALLET_QTY } = require('./quantities');
+const { fmtDay, fmtDateTime } = require('./dates');
 
 // Footer banner, embedded as an inline (cid:) attachment — remote <img> URLs are
 // blocked by default in most mail clients, base64 src doesn't render in Outlook.
@@ -160,8 +161,8 @@ function renderHtml(order, lines, { heading, intro, signoff = false } = {}) {
             ${field('E-mail', order.orderer_email)}
             ${field('Telephone', order.phone)}
             ${field('Your reference / order number', order.customer_reference)}
-            ${field('Requested shipping date', order.desired_ship_date)}
-            ${field('Date of order', new Date(order.created_at).toLocaleString('en-GB'))}
+            ${field('Requested shipping date', fmtDay(order.desired_ship_date))}
+            ${field('Date of order', fmtDateTime(order.created_at))}
             <p style="margin:8px 0 2px"><strong>Delivery address:</strong></p>
             <p style="margin:0;white-space:pre-line">${esc(order.delivery_address)}</p>
             <table style="border-collapse:collapse;margin-top:12px;min-width:420px">

@@ -5,6 +5,7 @@ import { useCart } from '../cartContext';
 import useProducts from '../hooks/useProducts';
 import apiClient from '../api';
 import { MAX_PALLETS_PER_ORDER, ASSUMED_PALLET_QTY, formatLine } from '../quantities';
+import { fmtDate, fmtDay } from '../dates';
 
 // The customer's own submitted orders. Read-only history; "Reorder" loads an
 // order's lines back into the cart (editable there — covers order-again AND
@@ -33,26 +34,27 @@ function MyOrdersPage() {
     if (!isAuthReady) return null;
     if (!isAuthenticated) return <Navigate to="/" replace />;
 
+    // Orders from before pallet ordering hold sheet counts; the cart and the forecast are
+    // pallets, so convert with today's pallet size, rounded up to whole pallets.
+    const toPallets = (l) => (l.unit === 'pallet'
+        ? l.quantity
+        : Math.ceil(l.quantity / (palletQtyByCode[l.article_code] ?? ASSUMED_PALLET_QTY)));
+
     const reorder = (order) => {
         // Replace the cart with this order (fixing a wrong click = just reorder the
         // right one). Confirm only if there's an in-progress cart to avoid a silent wipe.
         if (count > 0 && !window.confirm('This will replace your current cart with this order. Continue?')) return;
-        // Orders from before pallet ordering hold sheet counts; the cart is always pallets,
-        // so convert with today's pallet size, rounded up to whole pallets, and say so.
         const legacy = order.lines.some((l) => l.unit !== 'pallet');
         replaceItems(order.lines.map((l) => ({
             article_code: l.article_code,
             description: l.description,
-            quantity: l.unit === 'pallet'
-                ? l.quantity
-                : Math.min(MAX_PALLETS_PER_ORDER, Math.ceil(l.quantity / (palletQtyByCode[l.article_code] ?? ASSUMED_PALLET_QTY))),
+            quantity: Math.min(MAX_PALLETS_PER_ORDER, toPallets(l)),
         })));
         navigate('/cart', legacy
             ? { state: { notice: 'This order was placed in sheets. The quantities were converted to whole pallets (rounded up) — please check them before submitting.' } }
             : undefined);
     };
 
-    const fmtDate = (ms) => new Date(ms).toLocaleDateString();
 
     return (
         <div className="p-6 max-w-4xl">
@@ -74,7 +76,7 @@ function MyOrdersPage() {
                                 <span className="font-semibold text-gray-900">{o.our_reference}</span>
                                 <span className="text-gray-500"> · {fmtDate(o.created_at)} · {o.lines.length} item{o.lines.length !== 1 ? 's' : ''}</span>
                                 {o.customer_reference && <span className="text-gray-500"> · ref {o.customer_reference}</span>}
-                                {o.desired_ship_date && <span className="text-gray-500"> · ship {o.desired_ship_date}</span>}
+                                {o.desired_ship_date && <span className="text-gray-500"> · ship {fmtDay(o.desired_ship_date)}</span>}
                             </div>
                             <div className="flex gap-3 text-sm">
                                 <button onClick={() => setOpenId(openId === o.id ? null : o.id)} className="text-[#004EA2] hover:underline">
@@ -83,7 +85,7 @@ function MyOrdersPage() {
                                 <button onClick={() => reorder(o)} className="text-[#004EA2] hover:underline">Reorder</button>
                                 {features.forecast && (
                                     <button
-                                        onClick={() => navigate('/forecast', { state: { seed: o.lines, from: o.our_reference } })}
+                                        onClick={() => navigate('/forecast', { state: { seed: o.lines.map((l) => ({ article_code: l.article_code, quantity: toPallets(l) })), from: o.our_reference } })}
                                         className="text-[#004EA2] hover:underline"
                                     >
                                         Use as forecast

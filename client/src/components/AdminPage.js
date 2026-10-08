@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../authContext';
 import apiClient from '../api';
 import { sheetsFor, sheetsOfLine } from '../quantities';
+import { fmtDateTime, fmtDay } from '../dates';
 
 // One line on the order-mail credential (certificate or client secret). Entra makes it
 // expire and gives no warning of its own, so this is where an admin sees it coming.
@@ -162,7 +163,7 @@ function AdminPage() {
     if (!isAuthReady) return null;
     if (!isAuthenticated || !isAdmin) return <Navigate to="/" replace />;
 
-    const fmt = (ms) => new Date(ms).toLocaleString();
+    const fmt = fmtDateTime; // dd/mm/yyyy, hh:mm — Ad's preference, same as the mails
 
     // Export the given orders to CSV, one row per order line. Used for both the
     // filtered "all" export and a single order.
@@ -183,7 +184,7 @@ function AdminPage() {
                 const pallet = l.unit === 'pallet';
                 rows.push([
                     o.company_name, o.debtor_number, o.our_reference, o.customer_reference, fmt(o.created_at),
-                    o.orderer_name, o.orderer_email, o.phone, o.desired_ship_date, o.delivery_address,
+                    o.orderer_name, o.orderer_email, o.phone, fmtDay(o.desired_ship_date), o.delivery_address,
                     l.article_code, l.description,
                     pallet ? l.quantity : '',
                     pallet ? (l.pallet_qty ?? 'tbc') : '',
@@ -287,7 +288,7 @@ function AdminPage() {
                                             <p>Customer ref: {o.customer_reference || '—'}</p>
                                             <p>Orderer: {o.orderer_name} ({o.orderer_email})</p>
                                             <p>Phone: {o.phone}</p>
-                                            <p>Desired ship date: {o.desired_ship_date}</p>
+                                            <p>Desired ship date: {fmtDay(o.desired_ship_date)}</p>
                                         </div>
                                         <p className="mt-2 whitespace-pre-line">Deliver to:{'\n'}{o.delivery_address}</p>
                                         <table className="min-w-full text-sm mt-3">
