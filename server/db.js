@@ -90,6 +90,34 @@ const MIGRATIONS = [
             ALTER TABLE order_lines ADD COLUMN pallet_qty INTEGER;
         `);
     },
+    // v4 — landing-page news (Ad, 2026-10-07): banner + press releases, admin-managed.
+    // `published_at` is the date shown (admin-editable, 'YYYY-MM-DD'); order on the page is
+    // pinned first, then newest date. The image sits in its own table so listing news never
+    // drags BLOBs along; it is in the DB rather than on disk so the nightly backup and the
+    // restore procedure cover it unchanged, and deleting an item deletes its image.
+    (d) => {
+        d.exec(`
+            CREATE TABLE news (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                title        TEXT NOT NULL,
+                body         TEXT NOT NULL DEFAULT '',
+                link_url     TEXT,
+                published_at TEXT NOT NULL,
+                visible      INTEGER NOT NULL DEFAULT 0,
+                pinned       INTEGER NOT NULL DEFAULT 0,
+                created_at   INTEGER NOT NULL,
+                updated_at   INTEGER NOT NULL
+            );
+
+            CREATE TABLE news_image (
+                news_id    INTEGER PRIMARY KEY REFERENCES news(id) ON DELETE CASCADE,
+                mime       TEXT NOT NULL,
+                bytes      BLOB NOT NULL,
+                size       INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+        `);
+    },
 ];
 
 function migrate() {
@@ -213,55 +241,65 @@ function getAllOrders() {
 }
 
 // --- Forecast ---
-// One row per (customer, article, year, month). Saving replaces the whole grid for
-// that customer+year in one transaction: simpler and safer than diffing, since the
-// client always sends the complete grid it is editing.
-const getForecastStmt = db.prepare(
-    'SELECT article_code, month, quantity FROM forecast WHERE exact_contact_id = ? AND fiscal_year = ? ORDER BY article_code, month'
-);
-function getForecast(contactId, year) {
-    return getForecastStmt.all(contactId, year);
+// One row per (customer, article, year, month). Since the 2026-10-12 rework the customer
+// edits a rolling WINDOW (the next 12 months, spanning the year end), so the queries take a
+// range of year*100+month keys — `fromYM`..`toYM`, e.g. 202611..202710 — and saving replaces
+// exactly that window in one transaction: the client always sends the complete window it
+// edited, so replace beats diffing, and months outside it (history) are never touched.
+const getForecastWindowStmt = db.prepare(`
+    SELECT article_code, fiscal_year AS year, month, quantity, updated_at
+    FROM forecast
+    WHERE exact_contact_id = ? AND fiscal_year * 100 + month BETWEEN ? AND ?
+    ORDER BY article_code, fiscal_year, month
+`);
+function getForecastWindow(contactId, fromYM, toYM) {
+    return getForecastWindowStmt.all(contactId, fromYM, toYM);
 }
 
-const deleteForecastYearStmt = db.prepare('DELETE FROM forecast WHERE exact_contact_id = ? AND fiscal_year = ?');
+const deleteForecastWindowStmt = db.prepare(
+    'DELETE FROM forecast WHERE exact_contact_id = ? AND fiscal_year * 100 + month BETWEEN ? AND ?'
+);
 const insertForecastStmt = db.prepare(`
     INSERT INTO forecast (exact_contact_id, article_code, fiscal_year, month, quantity, updated_at)
     VALUES (@exact_contact_id, @article_code, @fiscal_year, @month, @quantity, @updated_at)
 `);
-const saveForecast = db.transaction((contactId, year, cells) => {
-    deleteForecastYearStmt.run(contactId, year);
+// `cells` = [{article_code, year, month, quantity}], all inside the window (the route checks).
+const saveForecastWindow = db.transaction((contactId, fromYM, toYM, cells) => {
+    deleteForecastWindowStmt.run(contactId, fromYM, toYM);
     const updated_at = Date.now();
     for (const c of cells) {
         insertForecastStmt.run({
             exact_contact_id: contactId,
             article_code: c.article_code,
-            fiscal_year: year,
+            fiscal_year: c.year,
             month: c.month,
             quantity: c.quantity,
             updated_at,
         });
     }
+    return updated_at;
 });
 
-// What the customer has actually ordered, in PALLETS, bucketed by the month they asked
-// it to ship. Shown alongside the forecast so they can see their real pattern and copy
-// it. Only pallet-unit lines count: the handful of orders placed in sheets before
-// 2026-09-22 would otherwise show as hundreds of "pallets". desired_ship_date is stored
-// as 'YYYY-MM-DD' text, hence the substr slicing.
-const getOrderedByMonthStmt = db.prepare(`
+// What the customer has already ordered for months INSIDE the window, in PALLETS, by the
+// month they asked it to ship — shown greyed under the plan so "already ordered for
+// December" is visible. Only pallet-unit lines count: the handful of orders placed in
+// sheets before 2026-09-22 would otherwise show as hundreds of "pallets".
+// desired_ship_date is 'YYYY-MM-DD' text, hence the substr slicing.
+const getOrderedInWindowStmt = db.prepare(`
     SELECT ol.article_code,
+           CAST(substr(o.desired_ship_date, 1, 4) AS INTEGER) AS year,
            CAST(substr(o.desired_ship_date, 6, 2) AS INTEGER) AS month,
            SUM(ol.quantity) AS quantity
     FROM orders o
     JOIN order_lines ol ON ol.order_id = o.id
     WHERE o.exact_contact_id = ?
       AND ol.unit = 'pallet'
-      AND substr(o.desired_ship_date, 1, 4) = ?
-    GROUP BY ol.article_code, month
-    ORDER BY ol.article_code, month
+      AND CAST(substr(o.desired_ship_date, 1, 4) AS INTEGER) * 100 + CAST(substr(o.desired_ship_date, 6, 2) AS INTEGER) BETWEEN ? AND ?
+    GROUP BY ol.article_code, year, month
+    ORDER BY ol.article_code, year, month
 `);
-function getOrderedByMonth(contactId, year) {
-    return getOrderedByMonthStmt.all(contactId, String(year));
+function getOrderedInWindow(contactId, fromYM, toYM) {
+    return getOrderedInWindowStmt.all(contactId, fromYM, toYM);
 }
 
 // Every customer's forecast for a year (admin overview), joined to the cached
@@ -283,9 +321,69 @@ function setOrderEmailStatus(id, status) {
     setEmailStatusStmt.run(status, id);
 }
 
+// --- News (landing page) ---
+// `image_v` = the image's updated_at (null = no image): the client puts it in the image URL,
+// so an image can be cached forever and a re-upload still shows up at once.
+const NEWS_COLUMNS = `
+    n.id, n.title, n.body, n.link_url, n.published_at, n.visible, n.pinned, n.created_at, n.updated_at,
+    i.updated_at AS image_v, i.size AS image_size
+`;
+const NEWS_ORDER = 'ORDER BY n.pinned DESC, n.published_at DESC, n.id DESC';
+const listVisibleNewsStmt = db.prepare(`SELECT ${NEWS_COLUMNS} FROM news n LEFT JOIN news_image i ON i.news_id = n.id WHERE n.visible = 1 ${NEWS_ORDER}`);
+const listAllNewsStmt = db.prepare(`SELECT ${NEWS_COLUMNS} FROM news n LEFT JOIN news_image i ON i.news_id = n.id ${NEWS_ORDER}`);
+const getNewsStmt = db.prepare(`SELECT ${NEWS_COLUMNS} FROM news n LEFT JOIN news_image i ON i.news_id = n.id WHERE n.id = ?`);
+function listNews({ visibleOnly }) {
+    return (visibleOnly ? listVisibleNewsStmt : listAllNewsStmt).all();
+}
+function getNews(id) {
+    return getNewsStmt.get(id) || null;
+}
+
+const insertNewsStmt = db.prepare(`
+    INSERT INTO news (title, body, link_url, published_at, visible, pinned, created_at, updated_at)
+    VALUES (@title, @body, @link_url, @published_at, @visible, @pinned, @now, @now)
+`);
+function createNews(fields) {
+    return Number(insertNewsStmt.run({ ...fields, now: Date.now() }).lastInsertRowid);
+}
+
+const updateNewsStmt = db.prepare(`
+    UPDATE news SET title = @title, body = @body, link_url = @link_url, published_at = @published_at,
+                    visible = @visible, pinned = @pinned, updated_at = @now
+    WHERE id = @id
+`);
+function updateNews(id, fields) {
+    return updateNewsStmt.run({ ...fields, id, now: Date.now() }).changes > 0;
+}
+
+const deleteNewsStmt = db.prepare('DELETE FROM news WHERE id = ?'); // cascades to news_image
+function deleteNews(id) {
+    return deleteNewsStmt.run(id).changes > 0;
+}
+
+const getNewsImageStmt = db.prepare('SELECT mime, bytes, updated_at FROM news_image WHERE news_id = ?');
+function getNewsImage(id) {
+    return getNewsImageStmt.get(id) || null;
+}
+
+const upsertNewsImageStmt = db.prepare(`
+    INSERT INTO news_image (news_id, mime, bytes, size, updated_at)
+    VALUES (@news_id, @mime, @bytes, @size, @updated_at)
+    ON CONFLICT(news_id) DO UPDATE SET mime = excluded.mime, bytes = excluded.bytes, size = excluded.size, updated_at = excluded.updated_at
+`);
+function setNewsImage(id, mime, bytes) {
+    upsertNewsImageStmt.run({ news_id: id, mime, bytes, size: bytes.length, updated_at: Date.now() });
+}
+
+const deleteNewsImageStmt = db.prepare('DELETE FROM news_image WHERE news_id = ?');
+function deleteNewsImage(id) {
+    return deleteNewsImageStmt.run(id).changes > 0;
+}
+
 module.exports = {
     db, nextSequence,
     upsertCustomerProfile, getCustomerProfile, getCustomers,
     createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus,
-    getForecast, saveForecast, getAllForecasts, getOrderedByMonth,
+    getForecastWindow, saveForecastWindow, getAllForecasts, getOrderedInWindow,
+    listNews, getNews, createNews, updateNews, deleteNews, getNewsImage, setNewsImage, deleteNewsImage,
 };

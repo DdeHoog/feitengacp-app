@@ -11,7 +11,7 @@ import { fmtDate, fmtDay } from '../dates';
 // order's lines back into the cart (editable there — covers order-again AND
 // copy-and-edit). Ad's all-customer view is the separate admin page (Batch 6).
 function MyOrdersPage() {
-    const { isAuthReady, isAuthenticated, features } = useAuth();
+    const { isAuthReady, isAuthenticated } = useAuth();
     const { replaceItems, count } = useCart();
     const navigate = useNavigate();
     const { products } = useProducts(); // pallet sizes, for converting pre-pallet orders on reorder
@@ -83,14 +83,6 @@ function MyOrdersPage() {
                                     {openId === o.id ? 'Hide' : 'Details'}
                                 </button>
                                 <button onClick={() => reorder(o)} className="text-[#004EA2] hover:underline">Reorder</button>
-                                {features.forecast && (
-                                    <button
-                                        onClick={() => navigate('/forecast', { state: { seed: o.lines.map((l) => ({ article_code: l.article_code, quantity: toPallets(l) })), from: o.our_reference } })}
-                                        className="text-[#004EA2] hover:underline"
-                                    >
-                                        Use as forecast
-                                    </button>
-                                )}
                             </div>
                         </div>
                         {openId === o.id && (

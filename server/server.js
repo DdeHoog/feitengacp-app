@@ -3,9 +3,11 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
-    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecast, saveForecast, getAllForecasts, getOrderedByMonth, getCustomers } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecastWindow, saveForecastWindow, getAllForecasts, getOrderedInWindow, getCustomers, listNews, getNews, createNews, updateNews, deleteNews, getNewsImage, setNewsImage, deleteNewsImage } = require('./db'); // requiring opens SQLite + runs migrations at boot
     const { MAX_PALLETS_PER_ORDER } = require('./quantities');
+    const { validateNews, IMAGE_MAX_MB, IMAGE_MAX_BYTES, IMAGE_TYPES } = require('./news');
     const { todayISO } = require('./dates');
+    const { currentWindow, ymKey } = require('./forecast');
     const mailer = require('./mailer');
 
     const express = require('express');
@@ -646,6 +648,87 @@
         res.json(getAllOrders());
     });
 
+    // === News (landing page; Ad 2026-10-07) ===
+    // The login page is the landing page and press releases are marketing material, so the
+    // visible items and their images are served without a JWT (an <img> can't send one
+    // anyway). Hidden items are only listed to admins; their image is still fetchable by id
+    // so the admin preview works — acceptable for marketing content, noted here on purpose.
+    app.get('/api/news', (req, res) => {
+        res.json(listNews({ visibleOnly: true }));
+    });
+
+    // The URL carries the image's version (?v=updated_at) → safe to cache for a year; a
+    // re-upload changes the version, so the page never shows a stale banner.
+    app.get('/api/news/:id/image', (req, res) => {
+        const img = getNewsImage(Number(req.params.id));
+        if (!img) return res.sendStatus(404);
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.type(img.mime).send(img.bytes);
+    });
+
+    const newsId = (req) => {
+        const id = Number(req.params.id);
+        return Number.isInteger(id) && id > 0 ? id : null;
+    };
+
+    app.get('/api/admin/news', authenticateToken, requireAdmin, (req, res) => {
+        res.json(listNews({ visibleOnly: false }));
+    });
+
+    app.post('/api/admin/news', authenticateToken, requireAdmin, (req, res) => {
+        const v = validateNews(req.body);
+        if (v.error) return res.status(400).json({ error: v.error });
+        const id = createNews(v.value);
+        logger.info({ id, title: v.value.title, by: req.user.email }, 'News item created');
+        res.status(201).json(getNews(id));
+    });
+
+    app.put('/api/admin/news/:id', authenticateToken, requireAdmin, (req, res) => {
+        const id = newsId(req);
+        const v = validateNews(req.body);
+        if (v.error) return res.status(400).json({ error: v.error });
+        if (!id || !updateNews(id, v.value)) return res.status(404).json({ error: 'News item not found.' });
+        logger.info({ id, by: req.user.email }, 'News item updated');
+        res.json(getNews(id));
+    });
+
+    app.delete('/api/admin/news/:id', authenticateToken, requireAdmin, (req, res) => {
+        const id = newsId(req);
+        if (!id || !deleteNews(id)) return res.status(404).json({ error: 'News item not found.' });
+        logger.info({ id, by: req.user.email }, 'News item deleted');
+        res.sendStatus(204);
+    });
+
+    // Image upload = the file as the raw request body with its own Content-Type (no
+    // multipart, no extra dependency). express.raw only buffers the listed image types —
+    // anything else leaves req.body empty → 415. Over the cap, body-parser answers 413; we
+    // just give that a readable message. The declared type is trusted: admin-only uploads,
+    // whitelisted to image/*, and helmet already sends X-Content-Type-Options: nosniff.
+    const imageBody = express.raw({ type: IMAGE_TYPES, limit: IMAGE_MAX_BYTES });
+    const parseImage = (req, res, next) => imageBody(req, res, (err) => {
+        if (err?.type === 'entity.too.large') err.publicMessage = `Image is too large (max ${IMAGE_MAX_MB} MB).`;
+        next(err);
+    });
+
+    app.put('/api/admin/news/:id/image', authenticateToken, requireAdmin, parseImage, (req, res) => {
+        const id = newsId(req);
+        if (!id || !getNews(id)) return res.status(404).json({ error: 'News item not found.' });
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+            return res.status(415).json({ error: `Unsupported image type — use ${IMAGE_TYPES.map((t) => t.split('/')[1]).join(', ')}.` });
+        }
+        const mime = String(req.get('content-type')).split(';')[0].trim().toLowerCase();
+        setNewsImage(id, mime, req.body);
+        logger.info({ id, mime, bytes: req.body.length, by: req.user.email }, 'News image set');
+        res.json(getNews(id));
+    });
+
+    app.delete('/api/admin/news/:id/image', authenticateToken, requireAdmin, (req, res) => {
+        const id = newsId(req);
+        if (!id || !getNews(id)) return res.status(404).json({ error: 'News item not found.' });
+        deleteNewsImage(id);
+        res.json(getNews(id));
+    });
+
     // === Ordering (Batch 4a: persist; the email send is Batch 4b) ===
     // Prefill data for the order form — the cached customer profile.
     app.get('/api/profile', authenticateToken, (req, res) => {
@@ -781,40 +864,45 @@
     // real boundary. 404 rather than 403 — the feature doesn't exist for that deployment.
     const requireForecast = (req, res, next) => (config.forecastEnabled ? next() : res.status(404).json({ error: 'Not available.' }));
 
+    // The customer's planning window (next 12 months — see forecast.js), their saved cells
+    // in it, what they already ordered for those months (plan vs. actual, greyed in the
+    // grid) and when they last saved. The browser never computes the window itself.
     app.get('/api/forecast', authenticateToken, requireForecast, (req, res) => {
-        const year = parseYear(req.query.year);
-        if (!year) return res.status(400).json({ error: 'Unsupported year.' });
+        const w = currentWindow();
+        const cells = getForecastWindow(req.user.id, w.fromYM, w.toYM);
         res.json({
-            year,
-            years: forecastYears(),
-            cells: getForecast(req.user.id, year),
-            // What they've actually ordered for that year, so the grid can show
-            // plan vs. actual side by side.
-            ordered: getOrderedByMonth(req.user.id, year),
+            months: w.months,
+            cells: cells.map(({ article_code, year, month, quantity }) => ({ article_code, year, month, quantity })),
+            ordered: getOrderedInWindow(req.user.id, w.fromYM, w.toYM),
+            updated_at: cells.reduce((max, c) => Math.max(max, c.updated_at || 0), 0) || null,
         });
     });
 
-    // Replaces the customer's whole grid for that year — the client always submits
-    // the complete grid it edited. Zero/blank quantities are simply dropped.
+    // Replaces the customer's whole window — the client always submits the complete grid
+    // it edited (hidden months of the 12 included). Zero/blank quantities are dropped. A
+    // cell outside the window means the month rolled over since the page loaded → reload.
     app.post('/api/forecast', authenticateToken, requireForecast, (req, res) => {
-        const year = parseYear(req.body.year);
-        if (!year) return res.status(400).json({ error: 'Unsupported year.' });
         if (!Array.isArray(req.body.cells)) return res.status(400).json({ error: 'cells must be an array.' });
+        const w = currentWindow();
 
         const cells = [];
         for (const c of req.body.cells) {
             const code = String(c?.article_code || '').trim();
+            const year = Number(c?.year);
             const month = Number(c?.month);
             const qty = Number(c?.quantity);
             if (!code) return res.status(400).json({ error: 'Each entry needs an article code.' });
-            if (!Number.isInteger(month) || month < 1 || month > 12) return res.status(400).json({ error: `Invalid month for ${code}.` });
+            if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return res.status(400).json({ error: `Invalid month for ${code}.` });
+            if (ymKey(year, month) < w.fromYM || ymKey(year, month) > w.toYM) {
+                return res.status(400).json({ error: 'The planning window has moved on since you opened the page — please reload and save again.' });
+            }
             if (!Number.isFinite(qty) || qty < 0) return res.status(400).json({ error: `Invalid quantity for ${code}.` });
-            if (qty > 0) cells.push({ article_code: code, month, quantity: Math.round(qty) });
+            if (qty > 0) cells.push({ article_code: code, year, month, quantity: Math.round(qty) });
         }
 
-        saveForecast(req.user.id, year, cells);
-        logger.info({ contactId: req.user.id, year, cells: cells.length }, 'Forecast saved');
-        res.json({ year, saved: cells.length });
+        const updated_at = saveForecastWindow(req.user.id, w.fromYM, w.toYM, cells);
+        logger.info({ contactId: req.user.id, from: w.fromYM, to: w.toYM, cells: cells.length }, 'Forecast saved');
+        res.json({ saved: cells.length, updated_at });
     });
 
     // All customers' forecasts for a year (admin overview — surfaced in Batch 6).

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../authContext';
+import apiClient from '../api';
+import NewsFeed from './NewsFeed';
 
 // SVG icons for the password toggle button
 const EyeIcon = () => (
@@ -29,6 +31,20 @@ function HomePage() {
   // Shown when a login takes unusually long — typically the server is in its
   // cold-start warm-up just after a restart and is retrying behind a 429.
   const [slowLogin, setSlowLogin] = useState(false);
+  // Landing-page news — shown only once logged in (Damian, 2026-10-09: before login the
+  // page's one job is the login; nothing should give people a reason to pause). The
+  // endpoint itself is public; this just doesn't ask for it until there is a token. It is
+  // decoration: a failed fetch leaves the column empty.
+  const [news, setNews] = useState([]);
+
+  useEffect(() => {
+    if (!authToken) { setNews([]); return undefined; }
+    let cancelled = false;
+    apiClient.get('/api/news')
+      .then((res) => { if (!cancelled) setNews(res.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [authToken]);
 
   // display logout or session expiration messages
   useEffect(() => {
@@ -64,21 +80,49 @@ function HomePage() {
   };
       
 
+  // Signed in: welcome + one line on the session, the news centre-left, the building photo
+  // vertically centred on the right. The news scrolls inside its own box so the page stays
+  // one screen.
+  if (authToken) {
+    // No w-full on the wrapper: width 100% would ignore the right margin that keeps us off
+    // the dark bar.
+    return (
+      <div className="h-full flex flex-col lg:ml-8 xl:ml-12 lg:mr-300width xl:mr-company-name-bar-width">
+        <div className="mt-4 lg:mt-6 mb-4 text-center lg:text-left">
+          <h1 className="text-xl lg:text-2xl xl:text-3xl font-bold text-gray-800">
+            Welcome to Feiteng Composites Europe B.V.
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">Your login lasts 1 hour, after which you will be asked to log in again.</p>
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col items-center gap-6 lg:flex-row lg:items-center lg:justify-between pb-4">
+          <div className="flex-1 min-w-0 w-full lg:max-h-[calc(100vh-16rem)] overflow-y-auto">
+            <NewsFeed items={news} />
+          </div>
+          <img
+            src="/location2.jpg"
+            alt="Company Building"
+            className="hidden lg:block flex-shrink-0 lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:ml-3"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Not signed in: the original landing page — title + login form left, photo right.
   return (
     <div className=" w-full h-full ">
       {/* Flex container for the two-column layout: title/form on left, image on right */}
       <div className="min-h-full flex flex-col justify-center items-center lg:flex-row lg:justify-between lg:items-start">
 
-        {/* Left Column: Contains the title and the new login form. */}
+        {/* Left Column: Contains the title and the login form. */}
         <div className="flex flex-col items-center lg:items-start max-w-lg lg:ml-8 xl:ml-12 lg:mt-10 xl:mt-20">
 
           {/* The heading for the page. */}
           <h1 className="text-xl lg:text-2xl xl:text-3xl font-bold text-gray-800 mb-4">
             Welcome to Feiteng Composites Europe B.V.
           </h1>
-          
-          {/* Basic Login Form. */}
-          {!authToken ? (
+
             <div className="bg-white p-2 lg:p-4 xl:p-6 rounded-lg shadow-md w-full max-w-sm mt-4 ">
               {notification && (
                   <div className="mb-4 p-3 rounded-md bg-yellow-100 text-yellow-800 border border-yellow-300 text-center">
@@ -154,21 +198,11 @@ function HomePage() {
                 </div>
               </form>
             </div>
-          ) : (
-            // If authToken exists
-            <div className="bg-white p-2 md:p-4 xl:p-6 rounded-lg shadow-md w-full max-w-sm mt-10 text-center">
-              <h2 className="text-xl xl:text-2xl font-semibold text-gray-800 mb-4">You are logged in!</h2>
-              <p className="text-gray-700">Login lasts for 1 hour, after which you will be prompted to log in again.</p>
-              <p className="text-gray-700">Explore the site using the navigation above.</p>
-            </div>
-          )}
-          </div>
-        
+        </div>
 
         {/* Right Column: Contains the company building image. */}
         <div className="hidden lg:block flex-shrink-0 lg:mr-300width xl:mr-company-name-bar-width">
-          {/* The image itself. 'h-[400px]' sets its height, 'w-auto' maintains aspect ratio. */}
-          <img src={!authToken ? "/location.png" : "/location2.jpg"} alt="Company Building" className="lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:mt-40 2xl:mt-30 lg:ml-3" />
+          <img src="/location.png" alt="Company Building" className="lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:mt-40 2xl:mt-30 lg:ml-3" />
         </div>
       </div>
     </div>

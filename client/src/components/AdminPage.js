@@ -4,6 +4,7 @@ import { useAuth } from '../authContext';
 import apiClient from '../api';
 import { sheetsFor, sheetsOfLine } from '../quantities';
 import { fmtDateTime, fmtDay } from '../dates';
+import NewsAdmin from './NewsAdmin';
 
 // One line on the order-mail credential (certificate or client secret). Entra makes it
 // expire and gives no warning of its own, so this is where an admin sees it coming.
@@ -219,6 +220,7 @@ function AdminPage() {
                 {[
                     ['orders', `Orders${orders ? ` (${orders.length})` : ''}`],
                     ['customers', `Logins${customers ? ` (${customers.length})` : ''}`],
+                    ['news', 'News'],
                 ].map(([id, label]) => (
                     <button
                         key={id}
@@ -233,6 +235,8 @@ function AdminPage() {
             {tab === 'customers' && (
                 customers ? <CustomersTable customers={customers} onPick={pickCustomer} /> : <p className="text-gray-600">Loading…</p>
             )}
+
+            {tab === 'news' && <NewsAdmin />}
 
             {tab === 'orders' && error && <p className="text-red-600">{error}</p>}
             {tab === 'orders' && !error && orders === null && <p className="text-gray-600">Loading…</p>}

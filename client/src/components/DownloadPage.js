@@ -1,176 +1,106 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { CATEGORIES, DOWNLOADS } from '../downloads';
+
+// Folded, a category shows exactly one grid row (2 / 3 / 4 columns), so the cut follows
+// the breakpoints in CSS rather than a resize listener. The class strings stay literal
+// for Tailwind's scanner.
+const GRID = 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4';
+const foldedDisplay = index => ['flex', 'flex', 'hidden sm:flex', 'hidden xl:flex'][index] ?? 'hidden';
+// "Show all" only where the fold actually hides something at that width.
+const toggleDisplay = count => ({ 3: 'sm:hidden', 4: 'xl:hidden' })[count] ?? '';
+
+function DownloadCard({ item, display }) {
+    return (
+        <a
+            href={item.file}
+            download={`${item.title.replace(/\s/g, '-')}.pdf`}
+            className={`group ${display} flex-col rounded-lg border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow overflow-hidden`}
+            aria-label={`Download ${item.title} (PDF, ${item.sizeMb.toFixed(1)} MB)`}
+        >
+            {/* Fixed A4-ish box so the odd square cover (Whiteboard) doesn't break the row */}
+            <div className="aspect-[5/7] bg-gray-50 overflow-hidden">
+                <img
+                    src={item.thumb}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
+                />
+            </div>
+            <div className="flex flex-col flex-grow gap-1 px-3 py-2">
+                <h3 className="text-sm font-semibold text-gray-800 line-clamp-2">{item.title}</h3>
+                <div className="mt-auto flex items-center justify-between gap-2 text-xs">
+                    <span className="text-gray-500">PDF · {item.sizeMb.toFixed(1)} MB</span>
+                    <span className="font-semibold text-[#004EA2] group-hover:underline">Download</span>
+                </div>
+            </div>
+        </a>
+    );
+}
+
+function CategorySection({ category, items }) {
+    const [expanded, setExpanded] = useState(false);
+    const foldable = items.length > 2;
+    const folded = foldable && !expanded;
+
+    return (
+        <section id={category.id} className="scroll-mt-2 mb-8">
+            <div className="mb-3">
+                <h2 className="text-lg font-bold text-[#004EA2]">
+                    {category.title} <span className="font-normal text-gray-500">({items.length})</span>
+                </h2>
+                <p className="text-sm text-gray-600">{category.description}</p>
+            </div>
+            <div className={GRID}>
+                {items.map((item, i) => (
+                    <DownloadCard key={item.file} item={item} display={folded ? foldedDisplay(i) : 'flex'} />
+                ))}
+            </div>
+            {foldable && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded(e => !e)}
+                    aria-expanded={expanded}
+                    className={`mt-3 text-sm font-semibold text-[#004EA2] hover:underline ${toggleDisplay(items.length)}`}
+                >
+                    {expanded ? 'Show fewer ▴' : `Show all ${items.length} ▾`}
+                </button>
+            )}
+        </section>
+    );
+}
 
 function DownloadPage() {
-  const catalogues = [
-    {
-      id: 1,
-      title: "Anodized Look Series",
-      image: "/Anodized-Cover.png", 
-      file: "/Anodized-Catalogue.pdf",  
-      alt: "Anodized Look Series Catalogue Cover",
-    },
-    {
-      id: 2,
-      title: "Brushed Mirror Series",
-      image: "/Brushed-Cover.png", 
-      file: "/Brushed-Catalogue.pdf", 
-      alt: "Brushed Mirror Series Catalogue Cover",
-    },
-    {
-      id: 3,
-      title: "Copper Stainless Steel Series",
-      image: "/Copper-Cover.png",
-      file: "/Copper-Catalogue.pdf",
-      alt: "Copper Stainless Steel Catalogue Cover",
-    },
-    {
-      id: 4,
-      title: "Diffuse Reflection Series",
-      image: "/Diffuse-Cover.png",
-      file: "/Diffuse-Catalogue.pdf",
-      alt: "Diffuse Reflection Series Catalogue Cover",
-    },
-    {
-      id: 5,
-      title: "Spectra Series",
-      image: "/Spectra-Cover.png", 
-      file: "/Spectra-Catalogue.pdf", 
-      alt: "Spectra Series Catalogue Cover",
-    },
-    {
-      id: 6,
-      title: "Standard Series",
-      image: "/Standard-Cover.png", 
-      file: "/Standard-Catalogue.pdf", 
-      alt: "Standard Series Catalogue Cover",
-    },
-    {
-      id: 7,
-      title: "Titanium Zinc Series",
-      image: "/Titanium-Cover.png",
-      file: "/Titanium-Catalogue.pdf",
-      alt: "Pure Titanium Titanium Zinc Series Catalogue Cover",
-    },
-    {
-      id: 8,
-      title: "Texture Velvet Series",
-      image: "/Velvet-Cover.png",
-      file: "/Velvet-Catalogue.pdf",
-      alt: "Texture Velvet Series Catalogue Cover",
-    },
-        {
-      id: 9,
-      title: "Wooden Stone Series",
-      image: "/Wooden-Cover.png",
-      file: "/Wooden-Catalogue.pdf",
-      alt: "Wooden Stone Series Catalogue Cover",
-    },
-    {
-      id: 10,
-      title: "Bathroom Panel Series",
-      image: "/Bathroom-Cover.png",
-      file: "/Bathroom-Catalogue.pdf",
-      alt: "Bathroom Panel Series Catalogue Cover",
-    },
-    {
-      id: 11,
-      title: "Kitchen Splashback Series",
-      image: "/Kitchen-Cover.png",
-      file: "/Kitchen-Catalogue.pdf",
-      alt: "Kitchen Splashback Series Catalogue Cover",
-    },
-    {
-      id: 12,
-      title: "Lyra Series",
-      image: "/Lyra-Cover.png",
-      file: "/Lyra-Catalogue.pdf",
-      alt: "Lyra Series Catalogue Cover",
-    },
-    {
-      id: 13,
-      title: "Dipper Series",
-      image: "/Dipper-Cover.png",
-      file: "/Dipper-Catalogue.pdf",
-      alt: "Dipper Series Catalogue Cover",
-    },
-    {
-      id: 14,
-      title: "Whiteboard Magnetic Panel",
-      image: "/Whiteboard-Cover.png",
-      file: "/Whiteboard-Catalogue.pdf",
-      alt: "Whiteboard Catalogue Cover",
-    }
-  ];
+    const sections = CATEGORIES
+        .map(category => ({ category, items: DOWNLOADS.filter(d => d.category === category.id) }))
+        .filter(s => s.items.length > 0);
 
-  const sustainableManual = {
-    id: 5,
-    title: "Sustainable Development Manual",
-    image: "/Sustainable-Cover.png", 
-    file: "/Sustainable-Catalogue.pdf",     
-    alt: "Sustainable Development Manual Cover",
-  };
+    const jumpTo = id => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  return (
-    <div className="container p-3 flex-col max-w-[72vw] max-h-[69vh] ">
-      {/* Top Heading */}
-      <h1 className="text-xl md:text-2xl font-bold text-indigo-800 mb-2 text-left ">
-        Catalogues available for download
-      </h1>
-      {/* Catalogues Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2 lg:gap-4 xl:gap-6 mb-4 w-full overflow-y-auto">
-        {catalogues.map((catalogue) => (
-          <a
-            key={catalogue.id}
-            href={catalogue.file}
-            download={`${catalogue.title.replace(/\s/g, '-')}.pdf`}
-            className="block rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden group"
-            aria-label={`Download ${catalogue.title}`}
-          >
-            <div className="relative overflow-hidden">
-              <img
-                src={catalogue.image}
-                alt={catalogue.alt}
-                className=" h-auto object-cover transform transition-transform duration-300 group-hover:scale-105"
-              />
-              <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <span className="text-white text-base font-semibold">Download</span> 
-              </div>
-            </div>
-            <div className="p-2 bg-white"> 
-              <h2 className="text-base text-gray-800 text-center font-semibold">{catalogue.title}</h2> 
-            </div>
-          </a>
-        ))}
-      </div> 
+    return (
+        <div className="p-4 lg:mr-300width xl:mr-company-name-bar-width">
+            <h1 className="text-2xl font-bold text-[#004EA2] mb-3">Downloads</h1>
 
-      {/* Sustainable Development Manual */}
-      <h2 className="text-xl md:text-2xl font-bold text-indigo-800 mb-2 text-left "> 
-        Sustainable Development Manual
-      </h2>
-      <div className="flex "> 
-        <a
-          href={sustainableManual.file}
-          download={`${sustainableManual.title.replace(/\s/g, '-')}.pdf`}
-          className="block rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden group w-80"
-          aria-label={`Download ${sustainableManual.title}`}
-        >
-          <div className="relative overflow-hidden">
-            <img
-              src={sustainableManual.image}
-              alt={sustainableManual.alt}
-              className=" h-auto object-cover transform transition-transform duration-300 group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-              <span className="text-white text-base font-semibold">Download</span>
-            </div>
-          </div>
-          <div className="p-2 bg-white">
-            <h2 className="text-base text-gray-800 text-center font-semibold">{sustainableManual.title}</h2>
-          </div>
-        </a>
-      </div>
-    </div>
-  );
+            {sections.length > 1 && (
+                <nav aria-label="Categories" className="flex flex-wrap gap-2 mb-6">
+                    {sections.map(({ category, items }) => (
+                        <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => jumpTo(category.id)}
+                            className="rounded-full border border-[#004EA2] px-3 py-1 text-sm text-[#004EA2] hover:bg-[#004EA2] hover:text-white transition-colors"
+                        >
+                            {category.title} ({items.length})
+                        </button>
+                    ))}
+                </nav>
+            )}
+
+            {sections.map(({ category, items }) => (
+                <CategorySection key={category.id} category={category} items={items} />
+            ))}
+        </div>
+    );
 }
 
 export default DownloadPage;
