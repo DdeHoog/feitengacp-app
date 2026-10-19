@@ -2,14 +2,20 @@ import React from 'react';
 import { fmtDay } from '../dates';
 import { imageUrl, linkLabel } from '../news';
 
-// One news item: banner/photo on top (shown whole, never cropped — banners are wide), then
+// One news item: banner/photo on top (shown whole at most its own size, never cropped), then
 // title, date, text with line breaks kept, and an optional link that names where it goes. Body text is
 // plain text from the admin page, never HTML.
 function NewsCard({ item }) {
     const src = imageUrl(item);
     return (
         <article className="bg-white rounded-lg shadow-md overflow-hidden">
-            {src && <img src={src} alt="" className="w-full h-auto block" />}
+            {/* Never upscaled (a 300×250 banner was stretched to the column width), height capped
+                so a large photo can't push the text out of view; aspect ratio always kept. */}
+            {src && (
+                <div className="flex justify-center bg-gray-50">
+                    <img src={src} alt="" className="block max-w-full max-h-64 w-auto h-auto" />
+                </div>
+            )}
             <div className="p-4 lg:p-5">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
                     <h2 className="text-lg lg:text-xl font-semibold text-gray-800">{item.title}</h2>
