@@ -5,7 +5,7 @@
 
 export const CATEGORIES = [
     { id: 'sales-catalogues', title: 'Sales catalogues', description: 'One catalogue per product series.' },
-    { id: 'technical-manual', title: 'Technical manual', description: 'Processing and installation of Feiteng metal composite panels.' },
+    { id: 'manuals', title: 'Manuals', description: 'Processing, installation and maintenance of Feiteng panels.' },
     { id: 'data-sheets', title: 'Data sheets', description: 'Technical data per product and grade.' },
     { id: 'sustainability', title: 'Sustainability', description: 'Our approach to sustainable development.' },
 ];
@@ -43,11 +43,19 @@ export const DOWNLOADS = [
     catalogue('Dipper Series', 'Dipper', 12.3),
     catalogue('Whiteboard Magnetic Panel', 'Whiteboard', 0.9),
     {
-        category: 'technical-manual',
+        category: 'manuals',
         title: 'Technical Manual',
         file: '/Technical-Manual.pdf',
         thumb: '/Technical-Cover-thumb.jpg',
         sizeMb: 19.7,
+    },
+    {
+        category: 'manuals',
+        title: 'Dipper Installation & Maintenance Instructions',
+        variant: 'Building grade',
+        file: '/Dipper-Installation-Manual.pdf',
+        thumb: '/Dipper-Installation-Cover-thumb.jpg',
+        sizeMb: 2.24,
     },
     dataSheet('Lyra Digital Printing & Signage Panel', 'Eco', 'Lyra-Signage-Eco', 0.22),
     dataSheet('Lyra Digital Printing & Signage Panel', 'Lite', 'Lyra-Signage-Lite', 0.22),
@@ -59,6 +67,10 @@ export const DOWNLOADS = [
     dataSheet('Lyra Copper Composite Panel', null, 'Lyra-Copper', 0.12),
     dataSheet('Lyra Gold / Silver Mirror Panel', 'Premium', 'Lyra-Mirror-Premium', 0.13),
     dataSheet('Lyra Whiteboard Magnetic Panel', 'Premium', 'Lyra-Whiteboard-Premium', 0.12),
+    dataSheet('Lyra FR Digital Printing & Signage Panel', 'FR Lite', 'Lyra-Signage-FR-Lite', 0.15),
+    dataSheet('Lyra FR Digital Printing & Signage Panel', 'FR Plus', 'Lyra-Signage-FR-Plus', 0.15),
+    dataSheet('Lyra FR Digital Printing & Signage Panel', 'FR Premium', 'Lyra-Signage-FR-Premium', 0.15),
+    dataSheet('Dipper Series', 'Building grade', 'Dipper', 0.09),
     {
         category: 'sustainability',
         title: 'Sustainable Development Manual',

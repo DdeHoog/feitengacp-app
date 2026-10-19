@@ -658,11 +658,14 @@
     });
 
     // The URL carries the image's version (?v=updated_at) → safe to cache for a year; a
-    // re-upload changes the version, so the page never shows a stale banner.
+    // re-upload changes the version, so the page never shows a stale banner. CORP is relaxed
+    // here only: helmet's same-origin blocked the banner when the page ran on feitengacp.eu and
+    // the image came from www.feitengacp.eu (2026-10-19) — public images can load from anywhere.
     app.get('/api/news/:id/image', (req, res) => {
         const img = getNewsImage(Number(req.params.id));
         if (!img) return res.sendStatus(404);
         res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
         res.type(img.mime).send(img.bytes);
     });
 

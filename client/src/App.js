@@ -1,6 +1,6 @@
 import React from 'react';
 import './App.css'; // Import for tailwind styles
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './authContext';
 import { CartProvider } from './cartContext';
 
@@ -30,7 +30,9 @@ function App() {
                 {/* The index route is the default child route for the parent '/' so we land on homepage */}
                 <Route index element={<HomePage />} />
                 <Route path="stock" element={<ProductList />} />
-                <Route path="contact" element={<DownloadPage />} />
+                <Route path="downloads" element={<DownloadPage />} />
+                {/* Old address of the downloads page — kept so existing links and bookmarks still work */}
+                <Route path="contact" element={<Navigate to="/downloads" replace />} />
                 <Route path="admin" element={<AdminPage />} />
                 <Route path="cart" element={<CartPage />} />
                 <Route path="orders" element={<MyOrdersPage />} />

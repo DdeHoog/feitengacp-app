@@ -72,7 +72,7 @@ function Layout() {
                 {features.forecast && (
                   <li><NavLink to="/forecast" style={navLinkStyles}>Forecast</NavLink></li>
                 )}
-                <li><NavLink to="/contact" style={navLinkStyles}>Download</NavLink></li>
+                <li><NavLink to="/downloads" style={navLinkStyles}>Download</NavLink></li>
                 {isAdmin && (
                   <li><NavLink to="/admin" style={navLinkStyles}>Admin</NavLink></li>
                 )}
