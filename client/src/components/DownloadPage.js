@@ -89,7 +89,7 @@ function DownloadPage() {
     };
 
     return (
-        <div className="p-4 lg:mr-300width xl:mr-company-name-bar-width">
+        <div className="p-4 lg:mr-brand-bar-lg xl:mr-brand-bar-xl">
             <h1 className="text-2xl font-bold text-[#004EA2] mb-3">Downloads</h1>
 
             {sections.length > 1 && (

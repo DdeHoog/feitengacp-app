@@ -23,7 +23,7 @@ function Layout() {
       <div className="w-4 absolute inset-y-0 left-0 lg:w-custom-bar-width-left bg-blue-300 z-10"></div> {/* Left Bar */}
       
       <div className=" absolute inset-y-0 right-0 flex z-10"> {/* Right Bars Container */}
-        <div className="hidden md:flex md:w-16 lg:w-300width xl:w-company-name-bar-width bg-[#004EA2] flex items-center justify-center">
+        <div className="hidden md:flex md:w-16 lg:w-brand-bar-lg xl:w-brand-bar-xl bg-[#004EA2] flex items-center justify-center">
           <span className="hidden md:flex transform rotate-90 text-transparent -translate-y-16 [-webkit-text-stroke:2px_white] md:text-6xl xl:text-8xl font-extrabold tracking-widest whitespace-nowrap">
             FEITENG
           </span>
@@ -31,8 +31,8 @@ function Layout() {
         <div className="w-4 lg:w-custom-bar-width-right bg-blue-300"></div>
       </div>
 
-      <div className={`hidden lg:flex absolute bottom-[44px] right-15 z-20 bg-gray-300 py-2 px-4 flex justify-end items-center lg:w-300width xl:w-company-name-bar-width`}> 
-        <div className="text-left text-black text-sm space-y-1 ">
+      <div className={`hidden lg:flex absolute bottom-[44px] right-15 z-20 bg-gray-300 py-2 px-4 flex justify-end items-center lg:w-brand-bar-lg xl:w-brand-bar-xl`}> 
+        <div className="text-left text-black lg:text-xs xl:text-sm space-y-1">
           <p className="font-bold">Feiteng Composites (Europe) B.V.</p>
           <p>Industriestraat 4</p>
           <p>5804 CK Venray</p>

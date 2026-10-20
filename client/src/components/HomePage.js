@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../authContext';
 import apiClient from '../api';
 import NewsFeed from './NewsFeed';
+import HqTiles from './HqTiles';
+import { fmtDay } from '../dates';
 
 // SVG icons for the password toggle button
 const EyeIcon = () => (
@@ -31,20 +33,28 @@ function HomePage() {
   // Shown when a login takes unusually long — typically the server is in its
   // cold-start warm-up just after a restart and is retrying behind a 429.
   const [slowLogin, setSlowLogin] = useState(false);
-  // Landing-page news — shown only once logged in (Damian, 2026-10-09: before login the
-  // page's one job is the login; nothing should give people a reason to pause). The
-  // endpoint itself is public; this just doesn't ask for it until there is a token. It is
-  // decoration: a failed fetch leaves the column empty.
+  // Landing-page news — shown only once logged in (Damian, 2026-10-09 and again 2026-10-19:
+  // before login the page's one job is the login). The endpoint itself is public; this just
+  // doesn't ask for it until there is a token. It is decoration: a failed fetch hides the bar.
   const [news, setNews] = useState([]);
+  const [newsOpen, setNewsOpen] = useState(false);
 
   useEffect(() => {
-    if (!authToken) { setNews([]); return undefined; }
+    if (!authToken) { setNews([]); setNewsOpen(false); return undefined; }
     let cancelled = false;
     apiClient.get('/api/news')
       .then((res) => { if (!cancelled) setNews(res.data); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [authToken]);
+
+  // Escape closes the news panel, like any overlay.
+  useEffect(() => {
+    if (!newsOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setNewsOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [newsOpen]);
 
   // display logout or session expiration messages
   useEffect(() => {
@@ -80,30 +90,62 @@ function HomePage() {
   };
       
 
-  // Signed in: welcome + one line on the session, the news centre-left, the building photo
-  // vertically centred on the right. The news scrolls inside its own box so the page stays
-  // one screen.
+  // Signed in (redesign 2026-10-19, after Ad's request for HQ-style blocks): the warehouse
+  // photo fills the page as a background; over it the welcome line, a news bar with the latest
+  // headline and the six HQ product tiles. The bar opens the full news list in place of the
+  // tiles — one panel, so nothing has to be fitted around a seventh block.
   if (authToken) {
-    // No w-full on the wrapper: width 100% would ignore the right margin that keeps us off
-    // the dark bar.
+    const latest = news[0];
     return (
-      <div className="h-full flex flex-col lg:ml-8 xl:ml-12 lg:mr-300width xl:mr-company-name-bar-width">
-        <div className="mt-4 lg:mt-6 mb-4 text-center lg:text-left">
-          <h1 className="text-xl lg:text-2xl xl:text-3xl font-bold text-gray-800">
-            Welcome to Feiteng Composites Europe B.V.
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">Your login lasts 1 hour, after which you will be asked to log in again.</p>
-        </div>
+      <div
+        className="relative h-full min-h-[32rem] lg:mr-brand-bar-lg xl:mr-brand-bar-xl rounded-lg overflow-hidden bg-cover bg-[center_40%]"
+        style={{ backgroundImage: 'url(/location2-bg.jpg)' }}
+      >
+        {/* Light wash from the left so the text and tiles stay readable on the photo */}
+        <div className="absolute inset-0 bg-gradient-to-r from-white/85 via-white/55 to-white/10" aria-hidden="true" />
 
-        <div className="flex-1 min-h-0 flex flex-col items-center gap-6 lg:flex-row lg:items-center lg:justify-between pb-4">
-          <div className="flex-1 min-w-0 w-full lg:max-h-[calc(100vh-16rem)] overflow-y-auto">
-            <NewsFeed items={news} />
+        <div className="relative h-full overflow-y-auto p-6 lg:p-10">
+          <div className="max-w-3xl">
+            <h1 className="text-xl lg:text-2xl xl:text-3xl font-bold text-gray-800">
+              Welcome to Feiteng Composites Europe B.V.
+            </h1>
+            <p className="mt-1 text-sm text-gray-600">Your login lasts 1 hour, after which you will be asked to log in again.</p>
+
+            {latest && (
+              <button
+                type="button"
+                onClick={() => setNewsOpen((o) => !o)}
+                aria-expanded={newsOpen}
+                aria-controls="news-panel"
+                className="group mt-6 w-full flex items-stretch rounded-lg overflow-hidden shadow-md bg-white/90 text-left hover:bg-[#004EA2] hover:text-white transition-colors"
+              >
+                <span className="flex items-center px-4 bg-[#004EA2] text-white text-sm font-bold tracking-widest">NEWS</span>
+                <span className="flex-1 min-w-0 px-4 py-3">
+                  <span className="block text-xs text-gray-500 group-hover:text-blue-100">{fmtDay(latest.published_at)}</span>
+                  <span className="block font-semibold truncate">{latest.title}</span>
+                </span>
+                <span className="flex items-center px-4 text-sm font-semibold text-[#004EA2] group-hover:text-white whitespace-nowrap">
+                  {newsOpen ? 'Close ✕' : news.length > 1 ? `All news (${news.length}) ▾` : 'Read ▾'}
+                </span>
+              </button>
+            )}
+
+            <div className="mt-4">
+              {newsOpen && latest ? (
+                <div
+                  id="news-panel"
+                  className="max-h-[calc(100vh-22rem)] overflow-y-auto -mr-5 pr-2 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgb(0_78_162/0.7)_transparent]"
+                >
+                  {/* The cards keep the column's width (= news bar = tiles). -mr-5 pr-2 + a reserved
+                      gutter put the scrollbar just outside the column, so the cards' rounded right
+                      edge never touches it; the track is transparent, the thumb Feiteng blue. */}
+                  <NewsFeed items={news} />
+                </div>
+              ) : (
+                <HqTiles />
+              )}
+            </div>
           </div>
-          <img
-            src="/location2.jpg"
-            alt="Company Building"
-            className="hidden lg:block flex-shrink-0 lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:ml-3"
-          />
         </div>
       </div>
     );
@@ -201,7 +243,7 @@ function HomePage() {
         </div>
 
         {/* Right Column: Contains the company building image. */}
-        <div className="hidden lg:block flex-shrink-0 lg:mr-300width xl:mr-company-name-bar-width">
+        <div className="hidden lg:block flex-shrink-0 lg:mr-brand-bar-lg xl:mr-brand-bar-xl">
           <img src="/location.png" alt="Company Building" className="lg:h-[300px] xl:h-[350px] 2xl:h-[400px] w-auto rounded-lg shadow-md lg:mt-40 2xl:mt-30 lg:ml-3" />
         </div>
       </div>

@@ -16,7 +16,11 @@ module.exports = {
         '30': '7.5rem', // 120px
         'custom-bar-width-left': '60px', // Example for a specific pixel value
         'custom-bar-width-right': '60px',
-        'company-name-bar-width': '420px',
+        // Width of the dark-blue FEITENG bar on the right (Layout) and the margin pages keep
+        // off it. Narrowed 2026-10-19 (Ad: "de blauwe Feiteng kolom wat versmallen") from
+        // 300 / 420 px; the address box under it uses the same width.
+        'brand-bar-lg': '240px',
+        'brand-bar-xl': '300px',
         '350width': '350px',
         '300width': '300px',
         '250width': '250px',
