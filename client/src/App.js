@@ -13,6 +13,7 @@ import AdminPage from './components/AdminPage';
 import CartPage from './components/CartPage';
 import MyOrdersPage from './components/MyOrdersPage';
 import ForecastPage from './components/ForecastPage';
+import PrivacyPage from './components/PrivacyPage';
 
 function App() {
   return (
@@ -37,6 +38,8 @@ function App() {
                 <Route path="cart" element={<CartPage />} />
                 <Route path="orders" element={<MyOrdersPage />} />
                 <Route path="forecast" element={<ForecastPage />} />
+                {/* Public; draft until Ad approves it — then linked from the footer. */}
+                <Route path="privacy" element={<PrivacyPage />} />
               </Route>
             </Routes>
           </CartProvider>

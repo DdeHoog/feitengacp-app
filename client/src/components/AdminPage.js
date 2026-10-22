@@ -44,15 +44,41 @@ const ago = (ms) => {
     return months === 1 ? 'a month ago' : `${months} months ago`;
 };
 
+// One customer's every login, newest first — fetched when the row is opened (Ad,
+// 2026-10-20). History starts at the backfill of the old login log (~July 2026).
+function LoginHistory({ contactId }) {
+    const [logins, setLogins] = useState(null);
+    const [error, setError] = useState(null);
+    useEffect(() => {
+        apiClient.get(`/api/admin/customers/${encodeURIComponent(contactId)}/logins`)
+            .then((res) => setLogins(res.data))
+            .catch((err) => setError(err.response?.data?.error || 'Failed to load the login history.'));
+    }, [contactId]);
+    if (error) return <p className="text-red-700">{error}</p>;
+    if (!logins) return <p className="text-gray-600">Loading…</p>;
+    if (logins.length === 0) return <p className="text-gray-600">No logins recorded.</p>;
+    return (
+        <>
+            <p className="text-gray-600 mb-2">
+                {logins.length} login{logins.length !== 1 ? 's' : ''} since {fmtDay(logins[logins.length - 1])}
+            </p>
+            <ol className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1 max-h-64 overflow-y-auto text-gray-800 tabular-nums">
+                {logins.map((at) => <li key={at}>{fmtDateTime(at)}</li>)}
+            </ol>
+        </>
+    );
+}
+
 // Who has logged in and how recently: one row per customer (a profile row is written at
-// login), newest login first. Ad wants the LAST login per customer, not a history, so that
-// is all we store. The list only ever grows, so it opens with the most recent handful and
-// the rest is reached by typing (company / contact / e-mail / debtor #) rather than by
-// scrolling; "Show all" exists for the occasional full scan (inactive customers sit at
-// the bottom). A row with orders filters the orders tab to that company.
+// login), newest login first. Clicking a row opens that customer's full login history
+// underneath (Ad, 2026-10-20); the Orders count jumps to their orders. The list only ever
+// grows, so it opens with the most recent handful and the rest is reached by typing
+// (company / contact / e-mail / debtor #) rather than by scrolling; "Show all" exists for
+// the occasional full scan (inactive customers sit at the bottom).
 function CustomersTable({ customers, onPick }) {
     const [search, setSearch] = useState('');
     const [showAll, setShowAll] = useState(false);
+    const [openId, setOpenId] = useState(null); // whose login history is shown
     const exact = (ms) => (ms ? new Date(ms).toLocaleString() : undefined);
     const term = search.trim().toLowerCase();
     const matches = term
@@ -93,24 +119,49 @@ function CustomersTable({ customers, onPick }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((c) => (
+                            {rows.map((c) => {
+                                const open = openId === c.exact_contact_id;
+                                const toggle = () => setOpenId(open ? null : c.exact_contact_id);
+                                return (
+                                <React.Fragment key={c.exact_contact_id}>
                                 <tr
-                                    key={c.exact_contact_id}
-                                    className={`border-b border-gray-100 ${c.orders > 0 ? 'cursor-pointer hover:bg-gray-50' : ''}`}
-                                    onClick={() => c.orders > 0 && onPick(c.company_name)}
-                                    title={c.orders > 0 ? "Show this customer's orders" : undefined}
+                                    className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${open ? 'bg-blue-50/50' : ''}`}
+                                    onClick={toggle}
+                                    title="Show this customer's login history"
                                 >
                                     <td className="py-2 px-3 font-medium text-gray-900">
-                                        {c.company_name || '—'}
+                                        {/* the real control for keyboard users; the row click is the mouse shortcut */}
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); toggle(); }}
+                                            aria-expanded={open}
+                                            className="text-left"
+                                        >
+                                            <span aria-hidden="true" className={`inline-block mr-1 text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+                                            {c.company_name || '—'}
+                                        </button>
                                         {c.debtor_number && <span className="font-normal text-gray-400"> · {c.debtor_number}</span>}
                                     </td>
                                     <td className="py-2 px-3 text-gray-700">{c.full_name || '—'}</td>
                                     <td className="py-2 px-3 text-gray-700">{c.email || '—'}</td>
                                     <td className="py-2 px-3 text-gray-700 whitespace-nowrap" title={exact(c.last_login)}>{ago(c.last_login)}</td>
-                                    <td className="py-2 px-3 text-right">{c.orders}</td>
+                                    <td className="py-2 px-3 text-right">
+                                        {c.orders > 0
+                                            ? <button type="button" onClick={(e) => { e.stopPropagation(); onPick(c.company_name); }} className="text-[#004EA2] hover:underline" title="Show this customer's orders">{c.orders} →</button>
+                                            : 0}
+                                    </td>
                                     <td className="py-2 px-3 text-gray-700 whitespace-nowrap" title={exact(c.last_order_at)}>{ago(c.last_order_at)}</td>
                                 </tr>
-                            ))}
+                                {open && (
+                                    <tr className="border-b border-gray-100 bg-blue-50/50">
+                                        <td colSpan={6} className="px-3 pb-3 pt-1 pl-8">
+                                            <LoginHistory contactId={c.exact_contact_id} />
+                                        </td>
+                                    </tr>
+                                )}
+                                </React.Fragment>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>

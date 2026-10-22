@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../authContext';
 import apiClient from '../api';
@@ -47,6 +47,20 @@ function HomePage() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [authToken]);
+
+  // News reach (Ad, 2026-10-20): report a card once it has been on screen ~2 s, and every
+  // click on its link. Fire-and-forget — a failed report must never bother the customer.
+  // `reported` dedupes "seen" per login (the server keeps the first time anyway).
+  const reported = useRef(new Set());
+  useEffect(() => { reported.current = new Set(); }, [authToken]);
+  const newsSeen = useCallback((id) => {
+    if (reported.current.has(id)) return;
+    reported.current.add(id);
+    apiClient.post(`/api/news/${id}/seen`).catch(() => {});
+  }, []);
+  const newsClicked = useCallback((id) => {
+    apiClient.post(`/api/news/${id}/click`).catch(() => {});
+  }, []);
 
   // Escape closes the news panel, like any overlay.
   useEffect(() => {
@@ -139,7 +153,7 @@ function HomePage() {
                   {/* The cards keep the column's width (= news bar = tiles). -mr-5 pr-2 + a reserved
                       gutter put the scrollbar just outside the column, so the cards' rounded right
                       edge never touches it; the track is transparent, the thumb Feiteng blue. */}
-                  <NewsFeed items={news} />
+                  <NewsFeed items={news} onSeen={newsSeen} onLinkClick={newsClicked} />
                 </div>
               ) : (
                 <HqTiles />

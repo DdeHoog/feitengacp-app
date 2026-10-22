@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import apiClient from '../api';
-import { fmtDay, todayISO } from '../dates';
+import { fmtDateTime, fmtDay, todayISO } from '../dates';
 import { imageUrl, checkImageFile, hostOf, linkLabel, IMAGE_TYPES, IMAGE_MAX_MB } from '../news';
 
 const errMsg = (err, fallback) => err.response?.data?.error || fallback;
@@ -138,12 +138,53 @@ function NewsForm({ item, onSaved, onCancel }) {
     );
 }
 
+// Who has seen / clicked one item (Ad, 2026-10-20). "Seen" = the card was on a customer's
+// screen ~2 s in the opened news panel — not proof it was read, hence the word. Admins are
+// not counted.
+function NewsReach({ id }) {
+    const [rows, setRows] = useState(null);
+    const [error, setError] = useState(null);
+    useEffect(() => {
+        apiClient.get(`/api/admin/news/${id}/reach`)
+            .then((res) => setRows(res.data))
+            .catch((err) => setError(errMsg(err, 'Failed to load who saw this item.')));
+    }, [id]);
+    if (error) return <p className="text-red-700">{error}</p>;
+    if (!rows) return <p className="text-gray-600">Loading…</p>;
+    if (rows.length === 0) return <p className="text-gray-600">No customer has seen this item yet.</p>;
+    return (
+        <table className="min-w-full">
+            <thead>
+                <tr className="text-left text-gray-500 border-b">
+                    <th className="py-1 pr-4 font-normal">Company</th>
+                    <th className="py-1 pr-4 font-normal">Contact</th>
+                    <th className="py-1 pr-4 font-normal">First seen</th>
+                    <th className="py-1 font-normal">Link clicked</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows.map((r) => (
+                    <tr key={r.exact_contact_id} className="border-b border-gray-100">
+                        <td className="py-1 pr-4 text-gray-900">{r.company_name || '—'}</td>
+                        <td className="py-1 pr-4 text-gray-700">{r.full_name || r.email || '—'}</td>
+                        <td className="py-1 pr-4 text-gray-700 whitespace-nowrap">{fmtDateTime(r.seen_at)}</td>
+                        <td className="py-1 text-gray-700 whitespace-nowrap">
+                            {r.clicks > 0 ? `${fmtDateTime(r.first_click_at)}${r.clicks > 1 ? ` (${r.clicks}×)` : ''}` : '—'}
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
 // Admin "News" tab: every item (hidden ones too), the order the home page uses — pinned
 // first, then newest date. Show/Hide and Pin/Unpin act at once; Edit opens the form in place.
 function NewsAdmin() {
     const [items, setItems] = useState(null);
     const [error, setError] = useState(null);
     const [editing, setEditing] = useState(null); // null | 'new' | item id
+    const [reachId, setReachId] = useState(null); // whose "seen by" list is open
 
     const load = useCallback(() => {
         apiClient.get('/api/admin/news')
@@ -157,7 +198,7 @@ function NewsAdmin() {
     const toggle = async (n, field) => {
         try {
             const res = await apiClient.put(`/api/admin/news/${n.id}`, { ...n, [field]: !n[field] });
-            setItems((list) => list.map((i) => (i.id === n.id ? res.data : i)));
+            setItems((list) => list.map((i) => (i.id === n.id ? { ...i, ...res.data } : i))); // keeps the reach counts
             load(); // order may have changed (pin)
         } catch (err) {
             setError(errMsg(err, 'Update failed.'));
@@ -200,7 +241,8 @@ function NewsAdmin() {
                     editing === n.id ? (
                         <NewsForm key={n.id} item={n} onSaved={saved} onCancel={() => setEditing(null)} />
                     ) : (
-                        <div key={n.id} className={`flex items-start gap-3 border rounded-md px-4 py-3 ${n.visible ? 'border-gray-200' : 'border-dashed border-gray-300 bg-gray-50'}`}>
+                        <div key={n.id} className={`border rounded-md px-4 py-3 ${n.visible ? 'border-gray-200' : 'border-dashed border-gray-300 bg-gray-50'}`}>
+                        <div className="flex items-start gap-3">
                             {imageUrl(n)
                                 ? <img src={imageUrl(n)} alt="" className="w-20 h-14 object-cover rounded flex-shrink-0 border border-gray-200" />
                                 : <div className="w-20 h-14 rounded bg-gray-100 text-xs text-gray-400 flex items-center justify-center flex-shrink-0">no image</div>}
@@ -213,6 +255,14 @@ function NewsAdmin() {
                                     {n.link_url && <span className="ml-2 text-xs">· link → {hostOf(n.link_url) || n.link_url}</span>}
                                 </p>
                                 {n.body && <p className="text-gray-600 truncate">{n.body}</p>}
+                                <button
+                                    type="button"
+                                    onClick={() => setReachId(reachId === n.id ? null : n.id)}
+                                    aria-expanded={reachId === n.id}
+                                    className="mt-1 text-[#004EA2] hover:underline"
+                                >
+                                    Seen by {n.seen_by} customer{n.seen_by !== 1 ? 's' : ''}{n.link_url ? ` · link clicked by ${n.clicked_by}` : ''} {reachId === n.id ? '▴' : '▾'}
+                                </button>
                             </div>
                             <div className="flex gap-3 text-sm whitespace-nowrap">
                                 <button onClick={() => toggle(n, 'visible')} className="text-[#004EA2] hover:underline">{n.visible ? 'Hide' : 'Show'}</button>
@@ -220,6 +270,8 @@ function NewsAdmin() {
                                 <button onClick={() => setEditing(n.id)} className="text-[#004EA2] hover:underline">Edit</button>
                                 <button onClick={() => remove(n)} className="text-red-700 hover:underline">Delete</button>
                             </div>
+                        </div>
+                        {reachId === n.id && <div className="mt-3 pl-[5.75rem] text-sm"><NewsReach id={n.id} /></div>}
                         </div>
                     )
                 ))}

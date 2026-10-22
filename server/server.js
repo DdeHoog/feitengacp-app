@@ -3,7 +3,7 @@
     const exactClient = require('./exactClient');
     const stockCache = require('./stockCache');
     const itemFieldsCache = require('./itemFieldsCache');
-    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecastWindow, saveForecastWindow, getAllForecasts, getOrderedInWindow, getCustomers, listNews, getNews, createNews, updateNews, deleteNews, getNewsImage, setNewsImage, deleteNewsImage } = require('./db'); // requiring opens SQLite + runs migrations at boot
+    const { upsertCustomerProfile, getCustomerProfile, createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus, getForecastWindow, saveForecastWindow, getAllForecasts, getOrderedInWindow, getCustomers, recordLogin, getLoginsForContact, listNews, getNews, createNews, updateNews, deleteNews, getNewsImage, setNewsImage, deleteNewsImage, markNewsSeen, markNewsClick, listNewsWithReach, getNewsReach } = require('./db'); // requiring opens SQLite + runs migrations at boot
     const { MAX_PALLETS_PER_ORDER } = require('./quantities');
     const { validateNews, IMAGE_MAX_MB, IMAGE_MAX_BYTES, IMAGE_TYPES } = require('./news');
     const { todayISO } = require('./dates');
@@ -149,8 +149,9 @@
         '251.32512': {typeOfSkin: 'LITE B1 FR'},
     };
 
-    async function logSuccessfulLogin(email){
-        const timestamp = new Date().toISOString();// e.g., "2024-06-15T12:34:56.789Z"
+    // `at` (ms) is shared with the login_event row, so the backfill script can match lines exactly.
+    async function logSuccessfulLogin(email, at){
+        const timestamp = new Date(at).toISOString();// e.g., "2024-06-15T12:34:56.789Z"
         const logEntry = `${timestamp} - Successful login for: ${email}\n`;
         const logFilePath = 'successful_logins.log';
 
@@ -524,7 +525,14 @@
                 };
                 const token = jwt.sign(user, config.jwtSecret, { expiresIn: '1h' });
 
-                await logSuccessfulLogin(email);
+                // History is for the admin page — a failed write is logged, never fails the login.
+                const loginAt = Date.now();
+                try {
+                    recordLogin(matchedContact.ID, loginAt);
+                } catch (err) {
+                    logger.error({ email, err: err.message }, 'login_event write failed');
+                }
+                await logSuccessfulLogin(email, loginAt);
 
                 // Refresh the cached profile in the background — never blocks/fails login.
                 refreshCustomerProfileAtLogin(accessToken, matchedContact)
@@ -643,6 +651,12 @@
         res.json(getCustomers());
     });
 
+    // One customer's full login history, newest first (Ad, 2026-10-20). Contact IDs are Exact
+    // GUIDs; an unknown one simply returns an empty list.
+    app.get('/api/admin/customers/:contactId/logins', authenticateToken, requireAdmin, (req, res) => {
+        res.json(getLoginsForContact(String(req.params.contactId)));
+    });
+
     // All submitted orders across customers (for the admin overview + CSV export).
     app.get('/api/admin/orders', authenticateToken, requireAdmin, (req, res) => {
         res.json(getAllOrders());
@@ -674,8 +688,29 @@
         return Number.isInteger(id) && id > 0 ? id : null;
     };
 
+    // News reach (Ad, 2026-10-20). The page reports a card once it has been on screen ~2 s in
+    // the opened news panel, and each click on its link. Logged-in customers only; admins are
+    // not counted (Ad checking his own item isn't reach). Unknown/hidden ids → 404, so a
+    // stale tab can't create rows for a deleted item (the FK would reject it anyway).
+    const trackNews = (mark) => (req, res) => {
+        const id = newsId(req);
+        const item = id && getNews(id);
+        if (!item || !item.visible) return res.sendStatus(404);
+        if (!req.user.isAdmin) mark(id, req.user.id);
+        res.sendStatus(204);
+    };
+    app.post('/api/news/:id/seen', authenticateToken, trackNews(markNewsSeen));
+    app.post('/api/news/:id/click', authenticateToken, trackNews(markNewsClick));
+
     app.get('/api/admin/news', authenticateToken, requireAdmin, (req, res) => {
-        res.json(listNews({ visibleOnly: false }));
+        res.json(listNewsWithReach());
+    });
+
+    // Who saw / clicked one item, newest first.
+    app.get('/api/admin/news/:id/reach', authenticateToken, requireAdmin, (req, res) => {
+        const id = newsId(req);
+        if (!id || !getNews(id)) return res.status(404).json({ error: 'News item not found.' });
+        res.json(getNewsReach(id));
     });
 
     app.post('/api/admin/news', authenticateToken, requireAdmin, (req, res) => {

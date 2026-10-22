@@ -118,6 +118,36 @@ const MIGRATIONS = [
             );
         `);
     },
+    // v5 — every login, not just the last one (Ad, 2026-10-20: pick a customer → their whole
+    // login history). customer_profile.last_login stays as the fast "latest" column. No FK to
+    // customer_profile: the profile is written in the background after login and may land
+    // later. UNIQUE(contact, at) makes the one-off backfill from successful_logins.log
+    // re-runnable — the live handler stamps the log line and this row with the same instant.
+    (d) => {
+        d.exec(`
+            CREATE TABLE login_event (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                exact_contact_id TEXT NOT NULL,
+                at               INTEGER NOT NULL,
+                UNIQUE (exact_contact_id, at)
+            );
+        `);
+    },
+    // v6 — news reach (Ad, 2026-10-20: "who reads it"): one row per item per customer.
+    // seen_at = first time the card was on screen ~2 s in the opened news panel; clicks on its
+    // link counted separately. Reading itself can't be measured — the admin page says "seen".
+    (d) => {
+        d.exec(`
+            CREATE TABLE news_view (
+                news_id          INTEGER NOT NULL REFERENCES news(id) ON DELETE CASCADE,
+                exact_contact_id TEXT NOT NULL,
+                seen_at          INTEGER NOT NULL,
+                first_click_at   INTEGER,
+                clicks           INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (news_id, exact_contact_id)
+            );
+        `);
+    },
 ];
 
 function migrate() {
@@ -192,6 +222,18 @@ const getCustomersStmt = db.prepare(`
 `);
 function getCustomers() {
     return getCustomersStmt.all();
+}
+
+// --- Login history (admin) ---
+// `at` is passed in so the audit log line and this row carry the same instant (see v5).
+const insertLoginStmt = db.prepare('INSERT OR IGNORE INTO login_event (exact_contact_id, at) VALUES (?, ?)');
+function recordLogin(contactId, at) {
+    insertLoginStmt.run(contactId, at);
+}
+
+const getLoginsStmt = db.prepare('SELECT at FROM login_event WHERE exact_contact_id = ? ORDER BY at DESC');
+function getLoginsForContact(contactId) {
+    return getLoginsStmt.all(contactId).map((r) => r.at);
 }
 
 // --- Orders ---
@@ -380,10 +422,53 @@ function deleteNewsImage(id) {
     return deleteNewsImageStmt.run(id).changes > 0;
 }
 
+// --- News reach ---
+// First sighting wins (seen_at never moves); a click also counts as seen.
+const markNewsSeenStmt = db.prepare(`
+    INSERT INTO news_view (news_id, exact_contact_id, seen_at) VALUES (?, ?, ?)
+    ON CONFLICT(news_id, exact_contact_id) DO NOTHING
+`);
+const markNewsClickStmt = db.prepare(`
+    INSERT INTO news_view (news_id, exact_contact_id, seen_at, first_click_at, clicks) VALUES (@news_id, @contact, @now, @now, 1)
+    ON CONFLICT(news_id, exact_contact_id) DO UPDATE SET
+        first_click_at = COALESCE(first_click_at, excluded.first_click_at),
+        clicks         = clicks + 1
+`);
+function markNewsSeen(newsId, contactId) {
+    markNewsSeenStmt.run(newsId, contactId, Date.now());
+}
+function markNewsClick(newsId, contactId) {
+    markNewsClickStmt.run({ news_id: newsId, contact: contactId, now: Date.now() });
+}
+
+// Admin list = the public columns + reach counts (kept off the public /api/news on purpose).
+const listNewsWithReachStmt = db.prepare(`
+    SELECT ${NEWS_COLUMNS},
+           (SELECT COUNT(*) FROM news_view v WHERE v.news_id = n.id)                       AS seen_by,
+           (SELECT COUNT(*) FROM news_view v WHERE v.news_id = n.id AND v.clicks > 0)      AS clicked_by
+    FROM news n LEFT JOIN news_image i ON i.news_id = n.id ${NEWS_ORDER}
+`);
+function listNewsWithReach() {
+    return listNewsWithReachStmt.all();
+}
+
+const getNewsReachStmt = db.prepare(`
+    SELECT v.exact_contact_id, v.seen_at, v.first_click_at, v.clicks,
+           p.company_name, p.full_name, p.email
+    FROM news_view v
+    LEFT JOIN customer_profile p ON p.exact_contact_id = v.exact_contact_id
+    WHERE v.news_id = ?
+    ORDER BY v.seen_at DESC
+`);
+function getNewsReach(newsId) {
+    return getNewsReachStmt.all(newsId);
+}
+
 module.exports = {
     db, nextSequence,
-    upsertCustomerProfile, getCustomerProfile, getCustomers,
+    upsertCustomerProfile, getCustomerProfile, getCustomers, recordLogin, getLoginsForContact,
     createOrder, getOrdersForContact, getAllOrders, setOrderEmailStatus,
     getForecastWindow, saveForecastWindow, getAllForecasts, getOrderedInWindow,
     listNews, getNews, createNews, updateNews, deleteNews, getNewsImage, setNewsImage, deleteNewsImage,
+    markNewsSeen, markNewsClick, listNewsWithReach, getNewsReach,
 };
